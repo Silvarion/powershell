@@ -54,11 +54,11 @@ function Ping-OracleDB
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
         # It can check several databases at once
-        [String[]]$TargetDatabase
+        [String[]]$TargetDB
     )
     Process {
         if (Check-OracleEnv) {
-            $pinged=$(tnsping $TargetDatabase)
+            $pinged=$(tnsping $TargetDB)
             $pinged[-1].contains('OK')
         }
     }
@@ -69,7 +69,7 @@ function Ping-OracleDB
     This will run a SQL script on one or more Oracle databases.
 #>
 # Connect to database and run a script
-function Run-OracleScript() {
+function Run-OracleScript {
     [CmdletBinding()]
     [Alias("rsql")]
     Param (
@@ -78,7 +78,7 @@ function Run-OracleScript() {
             ValueFromPipeline=$true,
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
-        [String[]]$TargetDatabase,
+        [String[]]$TargetDB,
         # It can run several scripts at once
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
@@ -92,7 +92,7 @@ function Run-OracleScript() {
     Begin{}
     Process{
         if (Check-OracleEnv) {
-            foreach ($db in $TargetDatabase) {
+            foreach ($db in $TargetDB) {
                 if (podb($db)) {
                     Write-Output "Database $db is reachable"
                     &"sqlplus" "-S" "/@$db" "@$SQLScript" 
@@ -106,3 +106,42 @@ function Run-OracleScript() {
     }
     End{}
 }
+
+function Get-OracleInstances {
+    [CmdletBinding()]
+    [Alias("gdbi")]
+    Param (
+        # It can run the script on several databases at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            HelpMessage="One or more Oracle Database names")]
+        [String[]]$TargetDB,
+
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{}
+    Process{
+        if (Check-OracleEnv) {
+            foreach ($db in $TargetDB) {
+                if (podb($db)) {
+                    Write-Output "Database $db is reachable"
+                    @'
+SET HEADING OFF
+SET PAGESIZE 0
+SELECT instance_name from gv$instance ORDER BY 1;
+exit
+'@ | &"sqlplus" "-S" "/@$db" 
+                } else {
+                    Write-Error "Database $db not reachable"
+                }
+            }
+        } else {
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
+        }
+    }
+    End{}
+}
+
