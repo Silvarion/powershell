@@ -13,14 +13,34 @@
 #>
 
 
-# Check Oracle Environment Variables
+<#
+.Synopsis
+   Check that the ORACLE_HOME is set. Returns $true if it is or $false otherwise.
+.DESCRIPTION
+   This functions returns $true if the ORACLE_HOME variable is set
+.EXAMPLE
+   Import-Module \Path\to\OracleUtils.psm1
+.NOTES
+   General notes
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
+.FUNCTIONALITY
+#>
 function Check-OracleEnv {
     [CmdletBinding()]
     [Alias("coe")]
     [OutputType([boolean])]
     Param()
     Process {
-        $env:ORACLE_HOME.Length -gt 0
+        if ($env:ORACLE_HOME.Length -gt 0) {
+            if ($(Get-ChildItem -Path "$env:ORACLE_HOME/bin" -Filter "sqlplus.exe").Exists) {
+                $true
+            } else {
+                $false
+            }
+        } else {
+            $false
+        }
     }
 }
 
@@ -37,8 +57,10 @@ function Ping-OracleDB
         [String[]]$TargetDatabase
     )
     Process {
-        $pinged=$(tnsping $TargetDatabase)
-        $pinged[-1].contains('OK')
+        if (Check-OracleEnv) {
+            $pinged=$(tnsping $TargetDatabase)
+            $pinged[-1].contains('OK')
+        }
     }
 }
 
