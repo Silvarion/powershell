@@ -15,13 +15,13 @@
 
 <#
 .Synopsis
-   Check that the ORACLE_HOME is set. Returns $true if it is or $false otherwise.
+   Checks that the ORACLE_HOME is set. Returns $true if it is or $false otherwise.
 .DESCRIPTION
-   This functions returns $true if the ORACLE_HOME variable is set
+   This functions returns $true if the ORACLE_HOME variable is set or $false otherwise
 .EXAMPLE
-   Import-Module \Path\to\OracleUtils.psm1
-.NOTES
-   General notes
+if (Check-OracleEnv) {
+    <Some commands>
+}
 .ROLE
    This cmdlet is mean to be used by Oracle DBAs
 .FUNCTIONALITY
@@ -44,7 +44,19 @@ function Check-OracleEnv {
     }
 }
 
-# TNS Ping Oracle Databases
+<#
+.Synopsis
+   Checks that the database is reachable by leveraging TNS Ping
+.DESCRIPTION
+   This functions returns $true if the tnsping is successful, $false otherwise
+.EXAMPLE
+    if (Ping-OracleDB -TargetDB <DB NAME>) {
+        <Some commands>
+    }
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
+.FUNCTIONALITY
+#>
 function Ping-OracleDB
 {
     [CmdletBinding()]
@@ -66,9 +78,14 @@ function Ping-OracleDB
 
 <#
 .Synopsis
-    This will run a SQL script on one or more Oracle databases.
+    This will run a SQL script on one or more Oracle databases by leveraging SQL*Plus
+.DESCRIPTION
+    This functions runs a SQL script on a Oracle Database and returns the output from the script
+.EXAMPLE
+    Run-OracleScript -TargetDB <DB NAME> -SQLScript <Path/to/file.sql>
+    .ROLE
+       This cmdlet is mean to be used by Oracle DBAs
 #>
-# Connect to database and run a script
 function Run-OracleScript {
     [CmdletBinding()]
     [Alias("rsql")]
@@ -95,7 +112,7 @@ function Run-OracleScript {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
                     Write-Output "Database $db is reachable"
-                    &"sqlplus" "-S" "/@$db" "@$SQLScript" 
+                    &"sqlplus" "-S" "/@$db" "@$SQLScript"
                 } else {
                     Write-Error "Database $db not reachable"
                 }
@@ -107,11 +124,21 @@ function Run-OracleScript {
     End{}
 }
 
+<#
+.Synopsis
+    Query an Oracle database to get the names of all its instances
+.DESCRIPTION
+    This functions runs a SQL script on a Oracle Database and returns the output from the script
+.EXAMPLE
+    Run-OracleScript -TargetDB <DB NAME> -SQLScript <Path/to/file.sql>
+    .ROLE
+       This cmdlet is mean to be used by Oracle DBAs
+#>
 function Get-OracleInstances {
     [CmdletBinding()]
     [Alias("gdbi")]
     Param (
-        # It can run the script on several databases at once
+        # This can be a list of databases
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
             ValueFromPipelineByPropertyName=$true,
@@ -128,14 +155,15 @@ function Get-OracleInstances {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
                     Write-Output "Database $db is reachable"
+                    # Using here-string to pipe the SQL query to SQL*Plus
                     @'
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT instance_name from gv$instance ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "/@$db" 
+'@ | &"sqlplus" "-S" "/@$db"
                 } else {
-                    Write-Error "Database $db not reachable"
+                    Write-Error "Database $db not reachable" >> $ErrorLogFile
                 }
             }
         } else {
@@ -144,4 +172,3 @@ exit
     }
     End{}
 }
-
