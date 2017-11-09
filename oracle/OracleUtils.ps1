@@ -132,8 +132,8 @@ function Run-OracleScript {
     This function returns the global name of the database
 .EXAMPLE
     Get-OracleGlobalName -TargetDB <DB NAME> [-ErrorLog]
-    .ROLE
-       This cmdlet is mean to be used by Oracle DBAs
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
 #>
 function Get-OracleGlobalName {
     [CmdletBinding()]
@@ -155,7 +155,7 @@ function Get-OracleGlobalName {
         if (Check-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
-                    Write-Output "Database $db is reachable"
+					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
                     @'
 SET HEADING OFF
@@ -181,8 +181,8 @@ exit
     This function returns instance names for a target oracle database
 .EXAMPLE
     Get-OracleInstance -TargetDB <DB NAME> -SQLScript <Path/to/file.sql> [-ErrorLog]
-    .ROLE
-       This cmdlet is mean to be used by Oracle DBAs
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
 #>
 function Get-OracleInstances {
     [CmdletBinding()]
@@ -204,12 +204,61 @@ function Get-OracleInstances {
         if (Check-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
-                    Write-Output "Database $db is reachable"
+					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
                     @'
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT instance_name from gv$instance ORDER BY 1;
+exit
+'@ | &"sqlplus" "-S" "/@$db"
+                } else {
+                    Write-Error "Database $db not reachable" | Out-File $ErrorLogFile
+                }
+            }
+        } else {
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
+        }
+    }
+    End{}
+}
+
+<#
+.Synopsis
+    Query an Oracle database to get the DBID
+.DESCRIPTION
+    This function returns the DBID of the target database
+.EXAMPLE
+    Get-OracleInstance -TargetDB <DB NAME>  [-ErrorLog]
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
+#>
+function Get-OracleDBID {
+    [CmdletBinding()]
+    [Alias("oragdbid")]
+    Param (
+        # This can be a list of databases
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            HelpMessage="One or more Oracle Database names")]
+        [String[]]$TargetDB,
+
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{}
+    Process{
+        if (Check-OracleEnv) {
+            foreach ($db in $TargetDB) {
+                if (podb($db)) {
+					Write-Debug "Database pinged successfully"
+                    # Using here-string to pipe the SQL query to SQL*Plus
+                    @'
+SET HEADING OFF
+SET PAGESIZE 0
+SELECT dbid FROM v$database;
 exit
 '@ | &"sqlplus" "-S" "/@$db"
                 } else {
@@ -262,6 +311,7 @@ function Get-OracleSnapshots {
         if (Check-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
+					Write-Debug "Database pinged successfully"
                     $StrStartStamp = $StartTime.AddSeconds(59).ToString("yyyy-MM-dd HH:mm:ss")
                     Write-Debug $StrStartStamp
                     $StrEndStamp = $EndTime.ToString("yyyy-MM-dd HH:mm:ss")
@@ -277,7 +327,7 @@ AND end_interval_time > TO_TIMESTAMP('$StrStartStamp','YYYY-MM-DD HH24:MI:SS');
 SELECT min(snap_id)
 FROM dba_hist_snapshot
 WHERE end_interval_time >= TO_TIMESTAMP('$StrEndStamp','YYYY-MM-DD HH24:MI:SS')
-AND begin_interval_time < TO_TIMESTAMP('$StrEndStamp','YYYY-MM-DD HH24:MI:SS');"
+AND begin_interval_time < TO_TIMESTAMP('$StrEndStamp','YYYY-MM-DD HH24:MI:SS');
 EXIT
 "@ | &"sqlplus" "-S" "/@$db"
                 } else {
@@ -330,9 +380,11 @@ function Get-OraclePerfReport {
         Write-Warning "NOT IMPLEMENTED YET!"
         if (Check-OracleEnv) {
             if (Ping-OracleDB -TargetDB $TargetDB) {
-
-                $StartTime.AddSeconds(59).ToString("yyyy-MM-dd HH:mm:ss")
-                $EndTime.ToString("yyyy-MM-dd HH:mm:ss")
+				Write-Debug "Database pinged successfully"
+				$result = Get-OracleSnapshots -TargetDB $TargetDB -StartTime $StartTime.AddSeconds(59).ToString("yyyy-MM-dd HH:mm:ss") -EndTime $EndTime.ToString("yyyy-MM-dd HH:mm:ss")
+				$StartSnapshot = $result[0]
+				$EndSnapshot = $result[1]
+				Write-Output "Starting Snapshot: $StartSnapshot | Ending Snapshot: $EndSnapshot"
             }
         }
     }
