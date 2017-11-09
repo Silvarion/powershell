@@ -680,16 +680,20 @@ function Get-OraclePerfReport {
                 [String]$StartSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $StartSnapshot -Mark start
                 [String]$EndSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $EndSnapshot -Mark end
                 Write-Verbose "Starting Snapshot Time: $StartSnapTime | Ending Snapshot Time: $EndSnapTime"
+                Write-Output "Getting Oracle database instances"
+                $Instances = Get-OracleInstances -TargetDB $TargetDB
                 if ($AWR) {
                     Write-Output "Generating AWR Report Set"
                     $ORAOutput = Get-OracleAWRReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
-                    Write-Output "Getting Oracle database instances"
-                    $Instances = Get-OracleInstances -TargetDB $TargetDB
                     foreach ($Instance in $Instances) {
                         if ($Instance.Length -gt 0) {
                             Write-Verbose "Launching AWR Instance #$InstNumber Report for $Instance"
                             $ORAOutput = Get-OracleAWRInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                         }
+                    }
+                    if ($Compress) {
+                        Write-Output "Compressing AWR reports set"
+                        zip -9m AWR_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip awr*.htm*
                     }
                 }
                 if ($ADDM) {
@@ -700,21 +704,25 @@ function Get-OraclePerfReport {
                             $ORAOutput = Get-OracleADDMInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                         }
                     }
-                }
-                if ($Compress) {
-                    Write-Output "Compressing AWR reports set"
-                    zip -9m AWR_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip awr*.htm*
-                    Write-Output "Compressing ADDM reports set"
-                    zip -9m ADDM_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip addm*.htm*
+                    if ($Compress) {
+                        Write-Output "Compressing ADDM reports set"
+                        zip -9m ADDM_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip addm*.*
+                    }
                 }
                 if ($SendMail) {
-                $EmailAddress = "some_email@some_domain.com"
+#                    if ($EmailAddress.Length -lt 6) {
+#                        Write-Warning "Please enter a valid email address"
+#                        #Read-Host -Prompt "Email to send the reports to" -OutVariable $EmailAddress
+#                        $EmailAddress="Sanchez, Jesus <Jesus.Sanchez.DBA@wellsfargo.com"
+#                    }
                     if ($Compress) {
                         $ReportFiles = Get-ChildItem -Path . -Name *reports.zip
                     } else {
                         $ReportFiles = Get-ChildItem -Path . -Name *report.*
                     }
-                Send-MailMessage -Attachments $ReportFiles -From $env:USERNAME -To $EmailAddress -Subject "Reports Test" -Body "Some message"
+                    $searcher = [adsisearcher]"(samaccountname=$env:USERNAME)"
+                    $FromAddress = $searcher.FindOne().Properties.mail
+                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message"
                 }
             }
         }
