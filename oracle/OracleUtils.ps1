@@ -722,7 +722,7 @@ function Get-OraclePerfReport {
                     }
                     $searcher = [adsisearcher]"(samaccountname=$env:USERNAME)"
                     $FromAddress = $searcher.FindOne().Properties.mail
-                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message"
+                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message" -SmtpServer "smtp.wellsfargo.com"
                 }
             }
         }
