@@ -990,7 +990,7 @@ function Get-OraclePerfReports {
                     Write-Output "Generating ADDM Report Set"
                     foreach ($Instance in $Instances) {
                         if ($Instance.Length -gt 0) {
-                            Write-Verbose "Launching ADDM Instance #$InstNumber Report for $Instance"
+                            Write-Verbose "Launching ADDM Instance Report for $Instance"
                             $ORAOutput = Get-OracleADDMInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                         }
                     }
