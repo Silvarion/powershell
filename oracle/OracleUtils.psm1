@@ -1000,11 +1000,10 @@ function Get-OraclePerfReports {
                     }
                 }
                 if ($SendMail) {
-#                    if ($EmailAddress.Length -lt 6) {
-#                        Write-Warning "Please enter a valid email address"
-#                        #Read-Host -Prompt "Email to send the reports to" -OutVariable $EmailAddress
-#                        $EmailAddress="Sanchez, Jesus <Jesus.Sanchez.DBA@wellsfargo.com"
-#                    }
+                    if ($EmailAddress.Length -lt 6) {
+                        Write-Warning "Please enter a valid email address"
+                        Read-Host -Prompt "Email to send the reports to" -OutVariable $EmailAddress
+                    }
                     if ($Compress) {
                         $ReportFiles = Get-ChildItem -Path . -Name *reports.zip
                     } else {
