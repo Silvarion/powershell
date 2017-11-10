@@ -283,16 +283,16 @@ ORDER BY 1;
 .DESCRIPTION
    This functions returns $true if the ORACLE_HOME variable is set or $false otherwise
 .EXAMPLE
-if (Check-OracleEnv) {
+if (Test-OracleEnv) {
     <Some commands>
 }
 .ROLE
    This cmdlet is mean to be used by Oracle DBAs
 .FUNCTIONALITY
 #>
-function Check-OracleEnv {
+function Test-OracleEnv {
     [CmdletBinding()]
-    [Alias("coe")]
+    [Alias("toe")]
     [OutputType([boolean])]
     Param()
     Process {
@@ -333,7 +333,7 @@ function Ping-OracleDB
         [String[]]$TargetDB
     )
     Process {
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             $pinged=$(tnsping $TargetDB)
             $pinged[-1].contains('OK')
         }
@@ -388,7 +388,7 @@ function Query-OracleDB {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
                     Write-Verbose "Database $db is reachable"
@@ -449,7 +449,7 @@ function Get-OracleGlobalName {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
 					Write-Debug "Database pinged successfully"
@@ -498,7 +498,7 @@ function Get-OracleInstances {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
 			Write-Debug "Database pinged successfully"
             # Using here-string to pipe the SQL query to SQL*Plus
             @'
@@ -541,7 +541,7 @@ function Get-OracleDBID {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (podb($db)) {
 					Write-Debug "Database pinged successfully"
@@ -599,7 +599,7 @@ function Get-OracleSnapshot {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
 			Write-Debug "Database pinged successfully"
             if ($Mark -eq "start") {
                 $StrTimeStamp = $TimeStamp.AddSeconds(50).ToString("yyyy-MM-dd HH:mm:ss")
@@ -674,7 +674,7 @@ function Get-OracleSnapshotTime {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             # Using here-string to pipe the SQL query to SQL*Plus
             if ($Mark -eq "start") {
                 @"
@@ -749,7 +749,7 @@ function Get-OracleADDMInstanceReport {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             $InstNumber = $Instance.Substring($Instance.Length-1)
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -812,7 +812,7 @@ function Get-OracleAWRReport {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
 			Write-Verbose "Launching AWR Global Report"
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -879,7 +879,7 @@ function Get-OracleAWRInstanceReport {
     )
     Begin{}
     Process{
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             $InstNumber = $Instance.Substring($Instance.Length-1)
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -953,7 +953,7 @@ function Get-OraclePerfReports {
     }
     Process {
         Write-Output "PS Oracle Performance Reports Generator"
-        if (Check-OracleEnv) {
+        if (Test-OracleEnv) {
             if (Ping-OracleDB -TargetDB $TargetDB) {
 				Write-Verbose "Database pinged successfully"
                 Write-Output "Gathering DBID"
@@ -1012,7 +1012,7 @@ function Get-OraclePerfReports {
                     }
                     $searcher = [adsisearcher]"(samaccountname=$env:USERNAME)"
                     $FromAddress = $searcher.FindOne().Properties.mail
-                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message" -SmtpServer "exchange.wellsfargo.com" -Credential "$env:USERDOMAIN\$env:USERNAME" -UseSsl
+                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message" -SmtpServer "<YOUR SMTP SERVER>" -Credential (Get-Credential) -UseSsl
                 }
             }
         }
