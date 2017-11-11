@@ -11,6 +11,8 @@
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
 
+
+
 <#
 .Synopsis
    Checks that the ORACLE_HOME is set. Returns $true if it is or $false otherwise.
@@ -127,8 +129,7 @@ function Use-OracleDB {
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
     )
     Begin{
-        Write-Logger -Info -Message "Welcome to the Use-OracleDB Function"
-        Write-Logger -Info -Message "====================================`n"
+        Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"
 
     }
     Process{
@@ -288,7 +289,7 @@ function Get-OracleGlobalName {
     Process{
         if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
-                if (Ping-OracleDatabase($db)) {
+                if (($db)) {
 					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
                     @'
@@ -380,7 +381,7 @@ function Get-OracleDBID {
     Process{
         if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
-                if (Ping-OracleDatabase($db)) {
+                if (Ping-OracleDB($db)) {
 					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
                     @'
