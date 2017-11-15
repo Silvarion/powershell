@@ -11,7 +11,23 @@
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
 
+Class OracleDatabase {
+    [String]$UniqueName
+    [String]$GlobalName
+    [boolean]$Cluster
+    [String[]]$Instances
+    [String[]]$Hosts
+    [String[]]$ActiveServices
 
+    OracleDatabase([String]$TargetDB) {
+        $this.GlobalName = Get-OracleName -NameType global -TargetDB $TargetDB
+        $this.UniqueName = Get-OracleName -NameType unique -TargetDB $TargetDB
+        $this.Instances = Get-OracleInstances -TargetDB $TargetDB
+        $this.Hosts = Get-OracleHosts -TargetDB $TargetDB
+        $this.ActiveServices = Get-OracleServices -TargetDB $TargetDB
+        if ($this.Hosts.Count -gt 1) {$this.Cluster=$true}
+    }
+}
 
 <#
 .Synopsis
@@ -76,187 +92,78 @@ function Ping-OracleDB
 
 <#
 .Synopsis
-    This will run a SQL script or command on one or more Oracle databases by leveraging SQL*Plus
+   Returns the Active Services in an Oracle DB
 .DESCRIPTION
-    This function runs a SQL script on a Oracle Database and returns the output from the script
+   This functions the Active Services in an Oracle DB
 .EXAMPLE
-    Run-OracleScript -TargetDB orcl -SQLScript 'C:\path\to\file.sql' -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
-.EXAMPLE
-    Run-OracleScript -TargetDB <DB NAME> -SQLQuery "SELECT 1 FROM DUAL;" -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+    Get-OracleServices -TargetDB myorcl
 .FUNCTIONALITY
-    This cmdlet is mean to be used by Oracle DBAs to query databases or run scripts.
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 #>
-function Use-OracleDB {
-    [CmdletBinding(
-        DefaultParameterSetName='BySQLQuery',
-        SupportsShouldProcess=$true)]
-    [Alias("oraquery")]
+function Get-OracleServices
+{
+    [CmdletBinding()]
+    [Alias("orasrvc")]
+    [OutputType([String[]])]
     Param (
-        # It can run the script on several databases at once
         [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true,
-            ValueFromPipelineByPropertyName=$true,
-            Position=0,
-            HelpMessage="One or more Oracle Database names")]
-        [String[]]$TargetDB,
-        # It can run several scripts at once
-        [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true,
-            ParameterSetName='BySQLFile',
-            Position=1,
-            HelpMessage="Path to SQL file to run on the databases")]
-        [String[]]$SQLScript,
-
-        [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true,
-            ParameterSetName='BySQLQuery',
-            Position=1,
-            HelpMessage="SQL query to run on the databases")]
-        [String[]]$SQLQuery,
-
-        [Parameter(
-            HelpMessage="Dump results to an output file")]
-        [Switch]$Dump,
-        [Parameter(
-            HelpMessage="Dump results to an output file")]
-        [String]$DumpFile,
-        # Switch to force get HTML output
-        [Parameter(
-            HelpMessage="Flags the output to be HTML")]
-        [Switch]$HTML,
-        # Switch to turn on the error logging
-        [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB
     )
-    Begin{
-        Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"
-
-    }
-    Process{
-        if($HTML) {
-            # Oracle HTML Header that formats HTML output from the Oracle Database
-            $OracleHtmlHeader = @'
-<html>
-<head>
-<style type='text/css'>
-body {font:normal 10pt Arial,Helvetica,sans-serif; color:black; background:White;}
-p {
-    font:10pt Arial,Helvetica,sans-serif;
-    color:black;
-    background:White;
-}
-table,tr,td {
-    font:10pt Arial,Helvetica,sans-serif;
-    color:Black;
-    background:#e7e7f7;
-    padding:0px 0px 0px 0px;
-    margin:0px 0px 0px 0px;
-}
-th {
-    font:bold 10pt Arial,Helvetica,sans-serif;
-    color:blue; 
-    background:#cccc99;
-    padding:0px 0px 0px 0px;
-}
-h1 {
-    font:16pt Arial,Helvetica,Geneva,sans-serif;
-    color:#336699; 
-    background-color:White; 
-    border-bottom:1px solid #cccc99; 
-    margin-top:0pt; margin-bottom:0pt;
-    padding:0px 0px 0px 0px;
-} 
-h2 {
-    font:bold 10pt Arial,Helvetica,Geneva,sans-serif; 
-    color:#336699;
-    background-color:White; 
-    margin-top:4pt; 
-    margin-bottom:0pt;
-} 
-a {
-    font:9pt Arial,Helvetica,sans-serif;
-    color:#663300; 
-    background:#ffffff; 
-    margin-top:0pt; 
-    margin-bottom:0pt;
-    vertical-align:top;}
-</style>
-</head>
-<body>
-'@
-# Oracle HTML Tail to close the body and html tags on the HTML output from the Oracle Database
-            $OracleHtmlTail = "</body></html>"
-        }
-        Write-Logger -Info -Message "Checking Oracle variables..."
-        if (Test-OracleEnv) {
+    Process {
+        if ((Test-OracleEnv) -and (Ping-OracleDB -TargetDB $TargetDB)) {
             foreach ($db in $TargetDB) {
-                Write-Logger -Info -Message "Trying to reach database..."
-                if (Ping-OracleDB -TargetDB $db) {
-                    Write-Logger -Notice -Message "Database $db is reachable"
-                    Write-Logger -Info -Message "Checking Run-Mode..."
-                    if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
-                        Write-Logger -Info -Message "Running on Script Mode"
-                        Write-Logger -Info -Message "Checking script for settings and exit string"
-                        $tmpScript = Get-Content -Path $SQLScript
-                        $toExecute = "$env:TEMP/runthis_$PID.sql"
-                        "-- AUTOGENERATED TEMPORARY FILE" | Out-File -Encoding ASCII $toExecute
-                        if ($HTML) {
-                        Write-Logger -Notice -Message "Adding HTML output setting"
-                        "SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append
-                        }
-                        foreach ($line in $tmpScript) {
-                            "$line" | Out-File -Encoding ASCII $toExecute -Append
-                        }
-                        if(-not $tmpScript[-1].ToLower().Contains("exit")) {
-                        Write-Logger -Notice -Message "Adding EXIT command"
-                        "exit;" | Out-File -Encoding ASCII $toExecute -Append
-                        }
-                        Write-Logger -Info -Message "Running script. Please wait..."
-                        $Output = &"sqlplus" "-S" "/@$db" "@$toExecute"
-                    } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
-                        Write-Logger -Info -Message "Running on Command Mode"
-                        if ($HTML) {
-                            Write-Logger -Notice -Message "Adding HTML setting to the command line"
-                            $SQLQuery = @"
-SET MARKUP HTML ON
-$SQLQuery
-"@
-                        }
-                        Write-Logger -Info -Message "Running query on the database..."
-                        $Output = @"
-$SQLQuery
-exit;
-"@ | &"sqlplus" "-S" "/@$db"
-
-                    } else {
-                        Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"
-                        exit
-                    }
-                    if ($Dump) {
-                        if ($DumpFile.Contains("htm")) {
-                            $OracleHtmlHeader | Out-File $DumpFile
-                        }
-                        $Output | Out-File $DumpFile -Append
-                        if ($DumpFile.Contains("htm")) {
-                            $OracleHtmlTail | Out-File $DumpFile -Append
-                        }
-                    } else {
-                        $Output
-                    }
-                } else {
-                    Write-Logger -Error -Message "Database $db not reachable"
-                }
+                @'
+SET PAGESIZE 0
+SET HEADING OFF
+COLUMN unique_name FORMAT a11
+COLUMN global_name FORMAT a11
+SELECT name 
+FROM v$active_services 
+WHERE name NOT LIKE ('SYS%') 
+ORDER BY 1;
+'@ | &"sqlplus" "-S" "/@$db"
             }
-        } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
-    End{
-        Write-Logger -Info -Message "Finished the runs, cleaning up..."
-        if($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
-            Remove-Item -Path $toExecute
+}
+
+<#
+.Synopsis
+   Returns the status of Database Vault
+.DESCRIPTION
+   This function returns the status of Database Vault in an Oracle DB
+.EXAMPLE
+    Get-OracleVaultStatus -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the status of Database Vault in an Oracle DB
+#>
+function Get-OracleVaultStatus
+{
+    [CmdletBinding()]
+    [Alias("orasrvc")]
+    [OutputType([String[]])]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB
+    )
+    Process {
+        if ((Test-OracleEnv) -and (Ping-OracleDB -TargetDB $TargetDB)) {
+            foreach ($db in $TargetDB) {
+                @'
+COLUMN name FORMAT a21
+COLUMN status FORMAT a5
+
+SELECT comp_name as name, status, modified
+FROM dba_registry
+WHERE comp_name LIKE '%Label%'
+OR comp_name LIKE '%Vault%';
+'@ | &"sqlplus" "-S" "/@$db"
+            }
         }
-        Write-Logger -Info -Message "Thanks for using this script."
     }
 }
 
@@ -270,7 +177,7 @@ exit;
 .ROLE
    This cmdlet is mean to be used by Oracle DBAs
 #>
-function Get-OracleGlobalName {
+function Get-OracleName {
     [CmdletBinding()]
     [Alias("oraname")]
     Param (
@@ -280,7 +187,13 @@ function Get-OracleGlobalName {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
         [String[]]$TargetDB,
-
+        # Name Type
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            HelpMessage="One or more Oracle Database names")]
+        [ValidateSet("global","unique","instance")]
+        [String[]]$NameType,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -290,14 +203,24 @@ function Get-OracleGlobalName {
         if (Test-OracleEnv) {
             foreach ($db in $TargetDB) {
                 if (($db)) {
+                    Switch ($NameType) {
+                        "global" {$Query="SELECT global_name FROM global_name;"}
+                        "unique" {$Query="SELECT db_unique_name FROM v`$database;"}
+                        "instance" {$Query="SELECT instance_name FROM v`$instance;"}
+                    }
 					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
-                    @'
-SET HEADING OFF
+                    @"
 SET PAGESIZE 0
-SELECT global_name from global_name;
+SET FEEDBACK OFF
+SET VERIFY OFF
+SET LINESIZE 999
+SET TRIM ON
+SET WRAP OFF
+SET HEADING OFF
+$Query
 exit
-'@ | &"sqlplus" "-S" "/@$db"
+"@ | &"sqlplus" "-S" "/@$db"
                 } else {
                     Write-Logger -Error -Message "Database $db not reachable" >> $ErrorLogFile
                 }
@@ -343,6 +266,49 @@ function Get-OracleInstances {
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT instance_name from gv$instance ORDER BY 1;
+exit
+'@ | &"sqlplus" "-S" "/@$TargetDB"
+        } else {
+            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+        }
+    }
+    End{}
+}
+
+<#
+.Synopsis
+    Query an Oracle database to get the names of all its hosts
+.DESCRIPTION
+    This function returns host names for a target oracle database
+.EXAMPLE
+    Get-OracleHosts -TargetDB <DB NAME> [-ErrorLog]
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
+#>
+function Get-OracleHosts {
+    [CmdletBinding()]
+    [Alias("orahost")]
+    Param (
+        # This can be a list of databases
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String]$TargetDB,
+
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{}
+    Process{
+        if (Test-OracleEnv) {
+			Write-Debug "Database pinged successfully"
+            # Using here-string to pipe the SQL query to SQL*Plus
+            @'
+SET HEADING OFF
+SET PAGESIZE 0
+SELECT host_name from gv$instance ORDER BY 1;
 exit
 '@ | &"sqlplus" "-S" "/@$TargetDB"
         } else {
@@ -855,4 +821,205 @@ function Get-OraclePerfReports {
         }
     }
     End{}
+}
+
+<#
+.Synopsis
+    This will run a SQL script or command on one or more Oracle databases by leveraging SQL*Plus
+.DESCRIPTION
+    This function runs a SQL script on a Oracle Database and returns the output from the script
+.EXAMPLE
+    Run-OracleScript -TargetDB orcl -SQLScript 'C:\path\to\file.sql' -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+.EXAMPLE
+    Run-OracleScript -TargetDB <DB NAME> -SQLQuery "SELECT 1 FROM DUAL;" -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+.FUNCTIONALITY
+    This cmdlet is mean to be used by Oracle DBAs to query databases or run scripts.
+#>
+function Use-OracleDB {
+    [CmdletBinding(
+        DefaultParameterSetName='BySQLQuery',
+        SupportsShouldProcess=$true)]
+    [Alias("oraquery")]
+    Param (
+        # It can run the script on several databases at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            Position=0,
+            HelpMessage="One or more Oracle Database names")]
+        [String[]]$TargetDB,
+        # It can run several scripts at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLFile',
+            Position=1,
+            HelpMessage="Path to SQL file to run on the databases")]
+        [String[]]$SQLScript,
+
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLQuery',
+            Position=1,
+            HelpMessage="SQL query to run on the databases")]
+        [String[]]$SQLQuery,
+
+        [Parameter(
+            HelpMessage="Dump results to an output file")]
+        [Switch]$Dump,
+        [Parameter(
+            HelpMessage="Dump results to an output file")]
+        [String]$DumpFile,
+        # Switch to force get HTML output
+        [Parameter(
+            HelpMessage="Flags the output to be HTML")]
+        [Switch]$HTML,
+        [Parameter(
+            HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
+        [Switch]$ToPipeline,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{
+        if (-not $ToPipeline) {Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"}
+
+    }
+    Process{
+        if($HTML) {
+            # Oracle HTML Header that formats HTML output from the Oracle Database
+            $OracleHtmlHeader = @'
+<html>
+<head>
+<style type='text/css'>
+body {font:normal 10pt Arial,Helvetica,sans-serif; color:black; background:White;}
+p {
+    font:10pt Arial,Helvetica,sans-serif;
+    color:black;
+    background:White;
+}
+table,tr,td {
+    font:10pt Arial,Helvetica,sans-serif;
+    color:Black;
+    background:#e7e7f7;
+    padding:0px 0px 0px 0px;
+    margin:0px 0px 0px 0px;
+}
+th {
+    font:bold 10pt Arial,Helvetica,sans-serif;
+    color:blue; 
+    background:#cccc99;
+    padding:0px 0px 0px 0px;
+}
+h1 {
+    font:16pt Arial,Helvetica,Geneva,sans-serif;
+    color:#336699; 
+    background-color:White; 
+    border-bottom:1px solid #cccc99; 
+    margin-top:0pt; margin-bottom:0pt;
+    padding:0px 0px 0px 0px;
+} 
+h2 {
+    font:bold 10pt Arial,Helvetica,Geneva,sans-serif; 
+    color:#336699;
+    background-color:White; 
+    margin-top:4pt; 
+    margin-bottom:0pt;
+} 
+a {
+    font:9pt Arial,Helvetica,sans-serif;
+    color:#663300; 
+    background:#ffffff; 
+    margin-top:0pt; 
+    margin-bottom:0pt;
+    vertical-align:top;}
+</style>
+</head>
+<body>
+'@
+# Oracle HTML Tail to close the body and html tags on the HTML output from the Oracle Database
+            $OracleHtmlTail = "</body></html>"
+        }
+        if ($ToPipeline) {
+            $PipelineSettings=@"
+SET PAGESIZE 0
+SET FEEDBACK OFF
+SET VERIFY OFF
+SET LINESIZE 999
+SET TRIM ON
+SET WRAP OFF
+SET HEADING OFF
+"@
+        }
+        if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Oracle variables..."}
+        if (Test-OracleEnv) {
+            foreach ($db in $TargetDB) {
+                if (-not $ToPipeline) {Write-Logger -Info -Message "Trying to reach database $db..."}
+                if (Ping-OracleDB -TargetDB $db) {
+                    if (-not $ToPipeline) {Write-Logger -Notice -Message "Database $db is reachable"}
+                    if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Run-Mode..."}
+                    if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
+                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Script Mode"}
+                        if (-not $ToPipeline) {Write-Logger -Info -Message "Checking script for settings and exit string"}
+                        $tmpScript = Get-Content -Path $SQLScript
+                        $toExecute = "$env:TEMP/runthis_$PID.sql"
+                        "-- AUTOGENERATED TEMPORARY FILE" | Out-File -Encoding ASCII $toExecute
+                        if ($HTML) {
+                        Write-Logger -Notice -Message "Adding HTML output setting"
+                        if (-not $ToPipeline) {"SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append}
+                        }
+                        foreach ($line in $tmpScript) {
+                            "$line" | Out-File -Encoding ASCII $toExecute -Append
+                        }
+                        if(-not $tmpScript[-1].ToLower().Contains("exit")) {
+                        if (-not $ToPipeline) {Write-Logger -Notice -Message "Adding EXIT command"}
+                        "exit;" | Out-File -Encoding ASCII $toExecute -Append
+                        }
+                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running script. Please wait..."}
+                        $Output = &"sqlplus" "-S" "/@$db" "@$toExecute"
+                    } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
+                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Command Mode"}
+                        if ($HTML) {
+                            if (-not $ToPipeline) {Write-Logger -Notice -Message "Adding HTML setting to the command line"}
+                            $SQLQuery = @"
+SET MARKUP HTML ON
+$SQLQuery
+"@
+                        }
+                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running query on the database..."}
+                        $Output = @"
+$PipelineSettings
+$SQLQuery
+exit;
+"@ | &"sqlplus" "-S" "/@$db"
+
+                    } else {
+                        if (-not $ToPipeline) {Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
+                        exit
+                    }
+                    if ($Dump) {
+                        if ($DumpFile.Contains("htm")) {
+                            $OracleHtmlHeader | Out-File $DumpFile
+                        }
+                        $Output | Out-File $DumpFile -Append
+                        if ($DumpFile.Contains("htm")) {
+                            $OracleHtmlTail | Out-File $DumpFile -Append
+                        }
+                    } else {
+                        $Output
+                    }
+                } else {
+                    Write-Logger -Error -Message "Database $db not reachable"
+                }
+            }
+        } else {
+            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+        }
+    }
+    End{
+        if (-not $ToPipeline) {Write-Logger -Info -Message "Finished the runs, cleaning up..."}
+        if($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
+            Remove-Item -Path $toExecute
+        }
+        if (-not $ToPipeline) {Write-Logger -Info -Message "Thanks for using this script."}
+    }
 }
