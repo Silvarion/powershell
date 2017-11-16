@@ -6,7 +6,7 @@
 .EXAMPLE
    Import-Module \Path\to\OracleUtils.psm1
 .NOTES
-    This is my first Module for PowerShell, so any comments and suggestions are more than welcome. 
+    This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
 .FUNCTIONALITY
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
@@ -18,6 +18,10 @@ Class OracleDatabase {
     [String[]]$Instances
     [String[]]$Hosts
     [String[]]$ActiveServices
+
+    OracleDatabase() {
+        Write-Logger -Notice "Object Created"
+    }
 
     OracleDatabase([String]$TargetDB) {
         $this.GlobalName = Get-OracleName -NameType global -TargetDB $TargetDB
@@ -119,9 +123,9 @@ SET PAGESIZE 0
 SET HEADING OFF
 COLUMN unique_name FORMAT a11
 COLUMN global_name FORMAT a11
-SELECT name 
-FROM v$active_services 
-WHERE name NOT LIKE ('SYS%') 
+SELECT name
+FROM v$active_services
+WHERE name NOT LIKE ('SYS%')
 ORDER BY 1;
 '@ | &"sqlplus" "-S" "/@$db"
             }
@@ -369,13 +373,13 @@ exit
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
@@ -441,13 +445,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
@@ -485,7 +489,7 @@ function Get-OracleSnapshotTime {
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(begin_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot 
+FROM dba_hist_snapshot
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
@@ -495,7 +499,7 @@ EXIT
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(end_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot 
+FROM dba_hist_snapshot
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
@@ -510,13 +514,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleADDMInstanceReport {
     [CmdletBinding()]
@@ -579,13 +583,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .FUNCTIONALITY
-    
+
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
@@ -640,13 +644,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .FUNCTIONALITY
-    
+
 #>
 function Get-OracleAWRInstanceReport {
     [CmdletBinding()]
@@ -906,30 +910,30 @@ table,tr,td {
 }
 th {
     font:bold 10pt Arial,Helvetica,sans-serif;
-    color:blue; 
+    color:blue;
     background:#cccc99;
     padding:0px 0px 0px 0px;
 }
 h1 {
     font:16pt Arial,Helvetica,Geneva,sans-serif;
-    color:#336699; 
-    background-color:White; 
-    border-bottom:1px solid #cccc99; 
+    color:#336699;
+    background-color:White;
+    border-bottom:1px solid #cccc99;
     margin-top:0pt; margin-bottom:0pt;
     padding:0px 0px 0px 0px;
-} 
+}
 h2 {
-    font:bold 10pt Arial,Helvetica,Geneva,sans-serif; 
+    font:bold 10pt Arial,Helvetica,Geneva,sans-serif;
     color:#336699;
-    background-color:White; 
-    margin-top:4pt; 
+    background-color:White;
+    margin-top:4pt;
     margin-bottom:0pt;
-} 
+}
 a {
     font:9pt Arial,Helvetica,sans-serif;
-    color:#663300; 
-    background:#ffffff; 
-    margin-top:0pt; 
+    color:#663300;
+    background:#ffffff;
+    margin-top:0pt;
     margin-bottom:0pt;
     vertical-align:top;}
 </style>
