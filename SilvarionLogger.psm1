@@ -6,7 +6,7 @@
 .EXAMPLE
    Import-Module \Path\to\SilvarionLogger.psm1
 .NOTES
-    This is one of my first modules for PowerShell, so any comments and suggestions are more than welcome. 
+    This is one of my first modules for PowerShell, so any comments and suggestions are more than welcome.
 .FUNCTIONALITY
     This Module is mean to be used as a simple logger for the console.
 #>
@@ -22,7 +22,7 @@
    Write-Debug -Info "Some Debugging  message"
 .NOTES
     -Debug turns on the debugging where the message is placed.
-    -Info and -Notice use the Verbose stream and activate it on demmand
+    --Notice use the Verbose stream
     -Error and -Critical options use the Error stream.
     -All other flags use the standard output.
 .FUNCTIONALITY
@@ -32,15 +32,25 @@
 function Write-Logger {
 [CmdletBinding()]
 Param(
+    # Switch for debug info
     [Switch]$Debugging,
+    # Switch for normal information
     [Switch]$Info,
+    # Switch for added logging
     [Switch]$Notice,
+    # Switch for Warnings
     [Switch]$Warning,
+    # Switch for Errors
     [Switch]$Error,
+    #Switch for Critical Errors, exits after showing the error
     [Switch]$Critical,
+    # Switch for plain output
     [Switch]$Plain,
+    # Switch for underlined output
     [Switch]$Underlined,
+    # Switch for blank line
     [Switch]$Blank,
+    # Message to be printed
     [Alias("msg")]
     [parameter(Mandatory=$true)]
     [String]$Message
@@ -55,17 +65,15 @@ Param(
     if ($Debugging) {
         Write-Debug "          [$StrTS] [Caller: $Caller][Code: $CallerLoc] $Message" -debug -InformationAction SilentlyContinue -ErrorAction SilentlyContinue
     } elseif ($Info) {
-        Write-Verbose "  [INFO][$StrTS] $Message" -Verbose
+        Write-Output "  [INFO][$StrTS] $Message"
     } elseif ($Notice) {
-        Write-Verbose "[NOTICE][$StrTS] $Message" -Verbose
+        Write-Verbose "[NOTICE][$StrTS] $Message"
     } elseif ($Warning) {
         Write-Warning "        [$StrTS] $Message"
     } elseif ($Error) {
         Write-Error "  [$StrTS] $Message" -TargetObject $Caller
     } elseif ($Critical) {
-        Write-Error "  [$StrTS] $Message" -TargetObject $Caller -RecommendedAction "Review $CallerLoc"
-    } elseif ($Plain) {
-        Write-Output "$Message"
+        Write-Error "  [CRITICAL][$StrTS] $Message" -TargetObject $Caller -RecommendedAction "Review $CallerLoc"
     } elseif ($Underlined) {
         $Line=""
         for ($i=0; $i -lt $Message.Length; $i++) {
@@ -75,5 +83,7 @@ Param(
         Write-Output "$Line"
     } elseif ($Blank) {
         Write-Output ""
+    } else {
+        Write-Output "$Message"
     }
 }
