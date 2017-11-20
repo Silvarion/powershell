@@ -64,9 +64,16 @@ function Test-OracleEnv {
 .DESCRIPTION
    This functions returns $true if the tnsping is successful, $false otherwise
 .EXAMPLE
-    if (Ping-OracleDB -TargetDB orcl {
+    if (Ping-OracleDB -TargetDB orcl) {
         Write-Logger -Notice -Message "Database pinged successfully"
         <Some commands>
+    }
+.EXAMPLE
+    if (Ping-OracleDB -TargetDB orcl | Select -Property PingStatus) {
+        Write-Logger -Notice -Message "Database pinged successfully"
+        <Some commands>
+    } else {
+        Write-Logger -Warning Ping-OracleDB -TargetDB orcl | Select -Property PingResult
     }
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
@@ -95,7 +102,7 @@ function Ping-OracleDB
                 $Pinged=$(tnsping $DBName)
                 $PingBool=$Pinged[-1].Contains('OK')
                 $DBProps= [ordered]@{
-                    [String]'DBName'=$DBName;
+                    [String]'DBName'=$DBName
                     [String]'PingResult'=$Pinged[-1]
                     [boolean]'PingStatus'=$PingBool
                 }
@@ -105,38 +112,6 @@ function Ping-OracleDB
                 $Pinged=$(tnsping $DBName)
                 $Pinged[-1].contains('OK')
             }
-        }
-    }
-}
-
-<#
-.Synopsis
-   Checks that the database is reachable by leveraging TNS Ping
-.DESCRIPTION
-   This functions returns $true if the tnsping is successful, $false otherwise
-.EXAMPLE
-    if (Ping-OracleDB -TargetDB orcl {
-        Write-Logger -Notice -Message "Database pinged successfully"
-        <Some commands>
-    }
-.FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
-#>
-function Ping-OracleDBString
-{
-    [CmdletBinding()]
-    [Alias("orapingstr")]
-    [OutputType([String])]
-    Param (
-        [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true)]
-        # It can check several databases at once
-        [String[]]$TargetDB
-    )
-    Process {
-        if (Test-OracleEnv) {
-            $Pinged=$(tnsping $TargetDB)
-            $Pinged[-1]
         }
     }
 }
@@ -164,7 +139,7 @@ function Get-OracleDBInfo {
         if (Test-OracleEnv) {
             if (Ping-OracleDB -TargetDB $TargetDB) {
                 $Props = [ordered]@{
-                    'Alias'=$TargetDB
+                    'Alias'=$TargetDB;
                     'UniqueName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType unique);
                     'GlobalName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType global);
                     'Instances'=[String[]]$(Get-OracleInstances -TargetDB $TargetDB)
@@ -193,20 +168,20 @@ function Get-OracleServices
 {
     [CmdletBinding()]
     [Alias("orasrvc")]
-    [OutputType([String[]])]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
         # It can check several databases at once
         [String[]]$TargetDB,
+        # Swtich to get output as table instead of lists
+        [Switch]$Table,
         # Switch to get individual output during the run or all together at the end
         [Switch]$Streamed
     )
     Process {
         if (Test-OracleEnv) {
-            if (Ping-OracleDB -TargetDB $TargetDB) {
-                $Counter = 0
-                foreach ($db in $TargetDB) {
+            foreach ($DBName in $TargetDB) {
+                if (Ping-OracleDB -TargetDB $DBName) {
                     [String]$Output = @'
 SET PAGESIZE 0
 SET HEADING OFF
@@ -217,12 +192,45 @@ SELECT name
 FROM v$active_services 
 WHERE name NOT LIKE ('SYS%') 
 ORDER BY 1;
-'@ | &"sqlplus" "-S" "/@$db"
-                    if ($Output.Contains("ORA-")) { $Output = "$($Output.Substring(0,75))..." }
-                    if ($Streamed) { $Output } else { $TotalOtput += "$Output" }
+'@ | &"sqlplus" "-S" "/@$DBName"
+                    if ($Output.Contains("ORA-")) {
+                        $Output = "$($Output.Substring(0,75))..." 
+                        $DBProps=[ordered]@{
+                            'DBName'=$DBName
+                            'Services'=$Output
+                        }
+                        $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                    } else {
+                        if ($Table) {
+                            foreach ($Line in $($Output -split " ")) {
+                                if ($Line.trim().Length -gt 0) {
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$DBName
+                                        'Services'=$Line
+                                    }
+                                }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Output $DBObj
+                            }
+                        } else {
+                            $DBProps=[ordered]@{
+                                'DBName'=$DBName
+                                'Services'=$Output
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                        }
+                    }
+                } else { 
+                    $DBProps=[ordered]@{
+                        'DBName'=$DBName
+                        'Services'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                 }
-                if (-not $Streamed) { $TotalOtput }
-            } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+                if (-not ($Table)) {
+                    Write-Output $DBObj
+                }
+            }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -252,22 +260,39 @@ function Get-OracleVaultStatus
     )
     Process {
         if (Test-OracleEnv) {
-            if (Ping-OracleDB -TargetDB $TargetDB) {
-                foreach ($db in $TargetDB) {
-                    @'
-COLUMN global_name FORMAT a15
+            foreach ($DBName in $TargetDB) {
+                if (Ping-OracleDB -TargetDB $TargetDB) {
+                    $Output=@'
 COLUMN name FORMAT a21
 COLUMN status FORMAT a5
+SET HEADING OFF
 SET FEEDBACK OFF
-SELECT global_name, comp_name as name, status, modified
-FROM dba_registry, global_name
+SELECT comp_name as name, status, modified
+FROM dba_registry
 WHERE comp_name LIKE '%Label%'
 OR comp_name LIKE '%Vault%';
-'@ | &"sqlplus" "-S" "/@$db"
-                     if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
+'@ | &"sqlplus" "-S" "/@$DBName"
+                    if ($Output.Contains("ORA-")) {
+                        $Output = "$($Output.Substring(0,75))..." 
+                    }
+                    foreach ($Line in [String[]]$($Output -split "`n")) {
+                        $DBProps=[ordered]@{
+                            'DBName'=$DBName
+                            'Services'=$Line
+                        }
+                        $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                        Write-Output $DBObj
+                        $Counter++
+                    }
+                } else { 
+                    $DBProps=[ordered]@{
+                        'DBName'=$DBName
+                        'Services'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                    Write-Output $DBObj
                 }
-                if (-not $Streamed) { $TotalOtput }
-           } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+            }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -1063,10 +1088,10 @@ SET HEADING OFF
         }
         if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Oracle variables..."}
         if (Test-OracleEnv) {
-            foreach ($db in $TargetDB) {
-                if (-not $ToPipeline) {Write-Logger -Info -Message "Trying to reach database $db..."}
-                if (Ping-OracleDB -TargetDB $db) {
-                    if (-not $ToPipeline) {Write-Logger -Notice -Message "Database $db is reachable"}
+            foreach ($DBName in $TargetDB) {
+                if (-not $ToPipeline) {Write-Logger -Info -Message "Trying to reach database $DBName..."}
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    if (-not $ToPipeline) {Write-Logger -Notice -Message "Database $DBName is reachable"}
                     if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Run-Mode..."}
                     if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
                         if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Script Mode"}
@@ -1086,7 +1111,7 @@ SET HEADING OFF
                         "exit;" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         if (-not $ToPipeline) {Write-Logger -Info -Message "Running script. Please wait..."}
-                        $Output = &"sqlplus" "-S" "/@$db" "@$toExecute"
+                        $Output = &"sqlplus" "-S" "/@$DBName" "@$toExecute"
                     } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
                         if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Command Mode"}
                         if ($HTML) {
@@ -1101,7 +1126,7 @@ $SQLQuery
 $PipelineSettings
 $SQLQuery
 exit;
-"@ | &"sqlplus" "-S" "/@$db"
+"@ | &"sqlplus" "-S" "/@$DBName"
 
                     } else {
                         if (-not $ToPipeline) {Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
@@ -1119,7 +1144,7 @@ exit;
                         $Output
                     }
                 } else {
-                    Write-Logger -Error -Message "Database $db not reachable"
+                    Write-Logger -Error -Message "Database $DBName not reachable"
                 }
             }
         } else {
