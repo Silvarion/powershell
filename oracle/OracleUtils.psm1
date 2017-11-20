@@ -6,7 +6,7 @@
 .EXAMPLE
    Import-Module \Path\to\OracleUtils.psm1
 .NOTES
-    This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
+    This is my first Module for PowerShell, so any comments and suggestions are more than welcome. 
 .FUNCTIONALITY
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
@@ -18,10 +18,6 @@ Class OracleDatabase {
     [String[]]$Instances
     [String[]]$Hosts
     [String[]]$ActiveServices
-
-    OracleDatabase() {
-        Write-Logger -Notice "Object Created"
-    }
 
     OracleDatabase([String]$TargetDB) {
         $this.GlobalName = Get-OracleName -NameType global -TargetDB $TargetDB
@@ -79,7 +75,58 @@ function Ping-OracleDB
 {
     [CmdletBinding()]
     [Alias("oraping")]
-    [OutputType([boolean])]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB,
+        # Flag to get full output or only boolean
+        [Switch]$Full
+    )
+    Begin {
+        if (-not (Test-OracleEnv)) {
+            Write-Logger -Critical "No ORACLE_HOME detected, please make sure your Oracle Environment is set"
+            exit
+        }
+    }
+    Process {
+        foreach ($DBName in $TargetDB) {
+            if ($Full) {
+                $Pinged=$(tnsping $DBName)
+                $PingBool=$Pinged[-1].Contains('OK')
+                $DBProps= [ordered]@{
+                    [String]'DBName'=$DBName;
+                    [String]'PingResult'=$Pinged[-1]
+                    [boolean]'PingStatus'=$PingBool
+                }
+                $DBObj = New-Object -TypeName PSObject -Property $DBProps
+                Write-Output $DBObj
+            } else {
+                $Pinged=$(tnsping $DBName)
+                $Pinged[-1].contains('OK')
+            }
+        }
+    }
+}
+
+<#
+.Synopsis
+   Checks that the database is reachable by leveraging TNS Ping
+.DESCRIPTION
+   This functions returns $true if the tnsping is successful, $false otherwise
+.EXAMPLE
+    if (Ping-OracleDB -TargetDB orcl {
+        Write-Logger -Notice -Message "Database pinged successfully"
+        <Some commands>
+    }
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
+#>
+function Ping-OracleDBString
+{
+    [CmdletBinding()]
+    [Alias("orapingstr")]
+    [OutputType([String])]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -88,17 +135,55 @@ function Ping-OracleDB
     )
     Process {
         if (Test-OracleEnv) {
-            $pinged=$(tnsping $TargetDB)
-            $pinged[-1].contains('OK')
+            $Pinged=$(tnsping $TargetDB)
+            $Pinged[-1]
         }
     }
 }
 
 <#
+.Synopsys
+    Returns a DB object
+.DESCRIPTION
+   This function returns a PSObject "OracleDatabase" with the database info
+.EXAMPLE
+    Get-OracleServices -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+#>
+function Get-OracleDBInfo {
+    [CmdletBinding()]
+    [Alias("orainfo")]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String]$TargetDB
+    )
+    Process {
+        if (Test-OracleEnv) {
+            if (Ping-OracleDB -TargetDB $TargetDB) {
+                $Props = [ordered]@{
+                    'Alias'=$TargetDB
+                    'UniqueName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType unique);
+                    'GlobalName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType global);
+                    'Instances'=[String[]]$(Get-OracleInstances -TargetDB $TargetDB)
+                    'Hosts'=[String[]]$(Get-OracleHosts -TargetDB $TargetDB);
+                    'ActiveServices'=[String[]]$($(Get-OracleServices -TargetDB $TargetDB) -split ' ');
+                }
+                $DBObj=New-Object -TypeName PSObject -Property $Props
+            } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
+        Write-Output $DBObj
+    }
+}
+
+
+<#
 .Synopsis
    Returns the Active Services in an Oracle DB
 .DESCRIPTION
-   This functions the Active Services in an Oracle DB
+   This function returns the Active Services in an Oracle DB
 .EXAMPLE
     Get-OracleServices -TargetDB myorcl
 .FUNCTIONALITY
@@ -113,23 +198,32 @@ function Get-OracleServices
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
         # It can check several databases at once
-        [String[]]$TargetDB
+        [String[]]$TargetDB,
+        # Switch to get individual output during the run or all together at the end
+        [Switch]$Streamed
     )
     Process {
-        if ((Test-OracleEnv) -and (Ping-OracleDB -TargetDB $TargetDB)) {
-            foreach ($db in $TargetDB) {
-                @'
+        if (Test-OracleEnv) {
+            if (Ping-OracleDB -TargetDB $TargetDB) {
+                $Counter = 0
+                foreach ($db in $TargetDB) {
+                    [String]$Output = @'
 SET PAGESIZE 0
 SET HEADING OFF
+SET FEEDBACK OFF
 COLUMN unique_name FORMAT a11
 COLUMN global_name FORMAT a11
-SELECT name
-FROM v$active_services
-WHERE name NOT LIKE ('SYS%')
+SELECT name 
+FROM v$active_services 
+WHERE name NOT LIKE ('SYS%') 
 ORDER BY 1;
 '@ | &"sqlplus" "-S" "/@$db"
-            }
-        }
+                    if ($Output.Contains("ORA-")) { $Output = "$($Output.Substring(0,75))..." }
+                    if ($Streamed) { $Output } else { $TotalOtput += "$Output" }
+                }
+                if (-not $Streamed) { $TotalOtput }
+            } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
 
@@ -146,28 +240,35 @@ ORDER BY 1;
 function Get-OracleVaultStatus
 {
     [CmdletBinding()]
-    [Alias("orasrvc")]
+    [Alias("oravault")]
     [OutputType([String[]])]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
         # It can check several databases at once
-        [String[]]$TargetDB
+        [String[]]$TargetDB,
+        # Switch to get individual output during the run or all together at the end
+        [Switch]$Streamed
     )
     Process {
-        if ((Test-OracleEnv) -and (Ping-OracleDB -TargetDB $TargetDB)) {
-            foreach ($db in $TargetDB) {
-                @'
+        if (Test-OracleEnv) {
+            if (Ping-OracleDB -TargetDB $TargetDB) {
+                foreach ($db in $TargetDB) {
+                    @'
+COLUMN global_name FORMAT a15
 COLUMN name FORMAT a21
 COLUMN status FORMAT a5
-
-SELECT comp_name as name, status, modified
-FROM dba_registry
+SET FEEDBACK OFF
+SELECT global_name, comp_name as name, status, modified
+FROM dba_registry, global_name
 WHERE comp_name LIKE '%Label%'
 OR comp_name LIKE '%Vault%';
 '@ | &"sqlplus" "-S" "/@$db"
-            }
-        }
+                     if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
+                }
+                if (-not $Streamed) { $TotalOtput }
+           } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
 
@@ -198,6 +299,8 @@ function Get-OracleName {
             HelpMessage="One or more Oracle Database names")]
         [ValidateSet("global","unique","instance")]
         [String[]]$NameType,
+        # Switch to get individual output during the run or all together at the end
+        [Switch]$Streamed,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -205,8 +308,8 @@ function Get-OracleName {
     Begin{}
     Process{
         if (Test-OracleEnv) {
-            foreach ($db in $TargetDB) {
-                if (($db)) {
+            foreach ($DBName in $TargetDB) {
+                if (($DBName)) {
                     Switch ($NameType) {
                         "global" {$Query="SELECT global_name FROM global_name;"}
                         "unique" {$Query="SELECT db_unique_name FROM v`$database;"}
@@ -224,11 +327,13 @@ SET WRAP OFF
 SET HEADING OFF
 $Query
 exit
-"@ | &"sqlplus" "-S" "/@$db"
+"@ | &"sqlplus" "-S" "/@$DBName"
                 } else {
-                    Write-Logger -Error -Message "Database $db not reachable" >> $ErrorLogFile
+                    Write-Logger -Error -Message "$(Ping-OracleDBString -TargetDB $DBName)" >> $ErrorLogFile
                 }
+                if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
             }
+            if (-not $Streamed) { $TotalOtput }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -256,7 +361,6 @@ function Get-OracleInstances {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -342,7 +446,8 @@ function Get-OracleDBID {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
         [String[]]$TargetDB,
-
+        # Switch to get individual output during the run or all together at the end
+        [Switch]$Streamed,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -350,8 +455,8 @@ function Get-OracleDBID {
     Begin{}
     Process{
         if (Test-OracleEnv) {
-            foreach ($db in $TargetDB) {
-                if (Ping-OracleDB($db)) {
+            foreach ($DBName in $TargetDB) {
+                if (Ping-OracleDB($DBName)) {
 					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
                     @'
@@ -359,11 +464,13 @@ SET HEADING OFF
 SET PAGESIZE 0
 SELECT dbid FROM v$database;
 exit
-'@ | &"sqlplus" "-S" "/@$db"
+'@ | &"sqlplus" "-S" "/@$DBName"
                 } else {
-                    Write-Logger -Error -Message "Database $db not reachable" | Out-File $ErrorLogFile
+                    Write-Logger -Error -Message "Database $DBName not reachable" | Out-File $ErrorLogFile
                 }
+                if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
             }
+            if (-not $Streamed) { $TotalOtput }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -373,13 +480,13 @@ exit
 
 <#
 .Synopsis
-
+    
 .DESCRIPTION
-
+    
 .EXAMPLE
-
+    
 .ROLE
-
+    
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
@@ -445,13 +552,13 @@ EXIT
 
 <#
 .Synopsis
-
+    
 .DESCRIPTION
-
+    
 .EXAMPLE
-
+    
 .ROLE
-
+    
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
@@ -489,7 +596,7 @@ function Get-OracleSnapshotTime {
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(begin_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot
+FROM dba_hist_snapshot 
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
@@ -499,7 +606,7 @@ EXIT
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(end_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot
+FROM dba_hist_snapshot 
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
@@ -514,13 +621,13 @@ EXIT
 
 <#
 .Synopsis
-
+    
 .DESCRIPTION
-
+    
 .EXAMPLE
-
+    
 .ROLE
-
+    
 #>
 function Get-OracleADDMInstanceReport {
     [CmdletBinding()]
@@ -583,13 +690,13 @@ EXIT
 
 <#
 .Synopsis
-
+    
 .DESCRIPTION
-
+    
 .EXAMPLE
-
+    
 .FUNCTIONALITY
-
+    
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
@@ -644,13 +751,13 @@ EXIT
 
 <#
 .Synopsis
-
+    
 .DESCRIPTION
-
+    
 .EXAMPLE
-
+    
 .FUNCTIONALITY
-
+    
 #>
 function Get-OracleAWRInstanceReport {
     [CmdletBinding()]
@@ -910,30 +1017,30 @@ table,tr,td {
 }
 th {
     font:bold 10pt Arial,Helvetica,sans-serif;
-    color:blue;
+    color:blue; 
     background:#cccc99;
     padding:0px 0px 0px 0px;
 }
 h1 {
     font:16pt Arial,Helvetica,Geneva,sans-serif;
-    color:#336699;
-    background-color:White;
-    border-bottom:1px solid #cccc99;
+    color:#336699; 
+    background-color:White; 
+    border-bottom:1px solid #cccc99; 
     margin-top:0pt; margin-bottom:0pt;
     padding:0px 0px 0px 0px;
-}
+} 
 h2 {
-    font:bold 10pt Arial,Helvetica,Geneva,sans-serif;
+    font:bold 10pt Arial,Helvetica,Geneva,sans-serif; 
     color:#336699;
-    background-color:White;
-    margin-top:4pt;
+    background-color:White; 
+    margin-top:4pt; 
     margin-bottom:0pt;
-}
+} 
 a {
     font:9pt Arial,Helvetica,sans-serif;
-    color:#663300;
-    background:#ffffff;
-    margin-top:0pt;
+    color:#663300; 
+    background:#ffffff; 
+    margin-top:0pt; 
     margin-bottom:0pt;
     vertical-align:top;}
 </style>
