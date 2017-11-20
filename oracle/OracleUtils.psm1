@@ -104,7 +104,7 @@ function Ping-OracleDB
                 $DBProps= [ordered]@{
                     [String]'DBName'=$DBName
                     [String]'PingResult'=$Pinged[-1]
-                    [boolean]'PingStatus'=$PingBool
+                    'PingStatus'=$PingBool
                 }
                 $DBObj = New-Object -TypeName PSObject -Property $DBProps
                 Write-Output $DBObj
