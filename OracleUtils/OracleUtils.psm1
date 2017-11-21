@@ -133,23 +133,80 @@ function Get-OracleDBInfo {
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
         # It can check several databases at once
-        [String]$TargetDB
+        [String[]]$TargetDB
     )
     Process {
         if (Test-OracleEnv) {
-            if (Ping-OracleDB -TargetDB $TargetDB) {
-                $Props = [ordered]@{
-                    'Alias'=$TargetDB;
-                    'UniqueName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType unique);
-                    'GlobalName'=[String]$(Get-OracleName -TargetDB $TargetDB -NameType global);
-                    'Instances'=[String[]]$(Get-OracleInstances -TargetDB $TargetDB)
-                    'Hosts'=[String[]]$(Get-OracleHosts -TargetDB $TargetDB);
-                    'ActiveServices'=[String[]]$($(Get-OracleServices -TargetDB $TargetDB) -split ' ');
+            foreach ($DBName in $TargetDB) {
+                if (Ping-OracleDB -TargetDB $TargetDB) {
+                    $Output = @'
+SET LINESIZE 9999
+SET PAGESIZE 0
+SET HEADING OFF
+SET FEEDBACK OFF
+COLUMN unique_name FORMAT a11
+COLUMN global_name FORMAT a11
+SELECT db_unique_name FROM v$database;
+SELECT global_name FROM global_name;
+SELECT listagg(instance_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
+SELECT listagg(host_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
+SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE NAME NOT LIKE 'SYS%';
+SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%';
+SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
+'@ | &"sqlplus" "-S" "/@$DBName"
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if ($Line.Contains("ORA-")) {
+                            $ErrorInOutput=$true
+                            $Line = "$($Line.Substring(0,25))..." 
+                            $DBProps=[ordered]@{
+                                'DBName'=[String]$DBName
+                                'GlobalName'=[String]"--------"
+                                'UniqueName'=[String]"--------"
+                                'InstanceName'=[String]"--------"
+                                'HostName'=[String]"--------"
+                                'ActiveServices'=[String]"--------"
+                                'Services'=[String]"--------"
+                                'Users'=[String]"--------"
+                                'ErrorMsg'=[String]$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        $DBProps = [ordered]@{
+                            'DBName'=[String]$TargetDB
+                            'UniqueName'=[String]$Output[0]
+                            'GlobalName'=[String]$Output[1]
+                            'Instances'=[String[]]$Output[2] -split ','
+                            'Hosts'=[String[]]$Output[3] -split ','
+                            'ActiveServices'=[String[]]$Output[4] -split ','
+                            'Services'=[String[]]$Output[5] -split ','
+                            'Users'=[String[]]$Output[6] -split ','
+                            'ErrorMsg'="--------"
+                        }
+                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                        Write-Output $DBObj
+                    }
+                } else { 
+                    $DBProps = [ordered]@{
+                        'DBName'=$DBName
+                        'GlobalName'=[String]"--------"
+                        'UniqueName'=[String]"--------"
+                        'InstanceName'=[String]"--------"
+                        'HostName'=[String]"--------"
+                        'ActiveServices'=[String]"--------"
+                        'Services'=[String]"--------"
+                        'Users'=[String]"--------"
+                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                    Write-Output $DBObj
                 }
-                $DBObj=New-Object -TypeName PSObject -Property $Props
-            } else { Write-Error "$(Ping-OracleDBString -TargetDB $TargetDB)" }
+            }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
-        Write-Output $DBObj
     }
 }
 
@@ -182,7 +239,7 @@ function Get-OracleServices
         if (Test-OracleEnv) {
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $DBName) {
-                    [String]$Output = @'
+                    $Output = @'
 SET PAGESIZE 0
 SET HEADING OFF
 SET FEEDBACK OFF
@@ -278,7 +335,7 @@ OR comp_name LIKE '%Vault%';
                     foreach ($Line in [String[]]$($Output -split "`n")) {
                         $DBProps=[ordered]@{
                             'DBName'=$DBName
-                            'Services'=$Line
+                            'Component'=$Line
                         }
                         $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                         Write-Output $DBObj
@@ -287,7 +344,7 @@ OR comp_name LIKE '%Vault%';
                 } else { 
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
-                        'Services'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        'Component'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                     Write-Output $DBObj
@@ -316,14 +373,8 @@ function Get-OracleName {
             ValueFromPipeline=$true,
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
+        [Alias("DBName")]
         [String[]]$TargetDB,
-        # Name Type
-        [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true,
-            ValueFromPipelineByPropertyName=$true,
-            HelpMessage="One or more Oracle Database names")]
-        [ValidateSet("global","unique","instance")]
-        [String[]]$NameType,
         # Switch to get individual output during the run or all together at the end
         [Switch]$Streamed,
         # Switch to turn on the error logging
@@ -335,14 +386,10 @@ function Get-OracleName {
         if (Test-OracleEnv) {
             foreach ($DBName in $TargetDB) {
                 if (($DBName)) {
-                    Switch ($NameType) {
-                        "global" {$Query="SELECT global_name FROM global_name;"}
-                        "unique" {$Query="SELECT db_unique_name FROM v`$database;"}
-                        "instance" {$Query="SELECT instance_name FROM v`$instance;"}
-                    }
-					Write-Debug "Database pinged successfully"
-                    # Using here-string to pipe the SQL query to SQL*Plus
-                    @"
+                    if (Ping-OracleDB -TargetDB $DBName) {
+					    Write-Debug "Database pinged successfully"
+                        # Using here-string to pipe the SQL query to SQL*Plus
+                        $Output=@"
 SET PAGESIZE 0
 SET FEEDBACK OFF
 SET VERIFY OFF
@@ -350,15 +397,54 @@ SET LINESIZE 999
 SET TRIM ON
 SET WRAP OFF
 SET HEADING OFF
-$Query
+SELECT global_name FROM global_name;
+SELECT db_unique_name FROM v`$database;
+SELECT instance_name FROM v`$instance;
+SELECT host_name FROM v`$instance;
 exit
 "@ | &"sqlplus" "-S" "/@$DBName"
-                } else {
-                    Write-Logger -Error -Message "$(Ping-OracleDBString -TargetDB $DBName)" >> $ErrorLogFile
+                        $ErrorInOutput=$false
+                        foreach ($Line in $Output) {
+                            if ($Line.Contains("ORA-")) {
+                                $ErrorInOutput=$true
+                                $Line = "$($Line.Substring(0,25))..." 
+                                $DBProps=[ordered]@{
+                                    'DBName'=[String]$DBName
+                                    'GlobalName'=[String]"--------"
+                                    'UniqueName'=[String]"--------"
+                                    'InstanceName'=[String]"--------"
+                                    'HostName'=[String]$Line
+                                }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Output $DBObj
+                                Break
+                            }
+                        }
+                        if (-not $ErrorInOutput) {
+                            $DBProps=[ordered]@{
+                                'DBName'=[String]$DBName
+                                'GlobalName'=[String]$Output[0]
+                                'UniqueName'=[String]$Output[1]
+                                'InstanceName'=[String[]]$Output[2]
+                                'HostName'=[String[]]$Output[3]
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                        }
+                    } else {
+                    $ErrorMsg=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        $DBProps=[ordered]@{
+                            'DBName'=[String]$DBName
+                            'GlobalName'=[String]"--------"
+                            'UniqueName'=[String]"--------"
+                            'InstanceName'=[String]"--------"
+                            'HostName'=[String]$ErrorMsg
+                        }
+                        $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                        Write-Output $DBObj                
+                    }
                 }
-                if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
             }
-            if (-not $Streamed) { $TotalOtput }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
