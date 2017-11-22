@@ -11,24 +11,6 @@
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
 
-Class OracleDatabase {
-    [String]$UniqueName
-    [String]$GlobalName
-    [boolean]$Cluster
-    [String[]]$Instances
-    [String[]]$Hosts
-    [String[]]$ActiveServices
-
-    OracleDatabase([String]$TargetDB) {
-        $this.GlobalName = Get-OracleName -NameType global -TargetDB $TargetDB
-        $this.UniqueName = Get-OracleName -NameType unique -TargetDB $TargetDB
-        $this.Instances = Get-OracleInstances -TargetDB $TargetDB
-        $this.Hosts = Get-OracleHosts -TargetDB $TargetDB
-        $this.ActiveServices = Get-OracleServices -TargetDB $TargetDB
-        if ($this.Hosts.Count -gt 1) {$this.Cluster=$true}
-    }
-}
-
 <#
 .Synopsis
    Checks that the ORACLE_HOME is set. Returns $true if it is or $false otherwise.
@@ -131,12 +113,27 @@ function Get-OracleDBInfo {
     [Alias("orainfo")]
     Param (
         [Parameter(Mandatory=$true,
-            ValueFromPipeline=$true)]
-        # It can check several databases at once
-        [String[]]$TargetDB
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            Position=0)]
+        # This can be only 1 database or a list of databases
+        [Alias("d")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
     )
     Process {
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $TargetDB) {
                     $Output = @'
@@ -153,7 +150,7 @@ SELECT listagg(host_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
 SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE NAME NOT LIKE 'SYS%';
 SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%';
 SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
-'@ | &"sqlplus" "-S" "/@$DBName"
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
@@ -180,11 +177,11 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                             'DBName'=[String]$TargetDB
                             'UniqueName'=[String]$Output[0]
                             'GlobalName'=[String]$Output[1]
-                            'Instances'=[String[]]$Output[2] -split ','
-                            'Hosts'=[String[]]$Output[3] -split ','
-                            'ActiveServices'=[String[]]$Output[4] -split ','
-                            'Services'=[String[]]$Output[5] -split ','
-                            'Users'=[String[]]$Output[6] -split ','
+                            'Instances'=[String]$Output[2]
+                            'Hosts'=[String]$Output[3]
+                            'ActiveServices'=[String]$Output[4]
+                            'Services'=[String]$Output[5]
+                            'Users'=[String]$Output[6]
                             'ErrorMsg'="--------"
                         }
                         $DBObj=New-Object -TypeName PSObject -Property $DBProps
@@ -232,11 +229,21 @@ function Get-OracleServices
         [String[]]$TargetDB,
         # Swtich to get output as table instead of lists
         [Switch]$Table,
-        # Switch to get individual output during the run or all together at the end
-        [Switch]$Streamed
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
     )
     Process {
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $DBName) {
                     $Output = @'
@@ -249,7 +256,7 @@ SELECT name
 FROM v$active_services 
 WHERE name NOT LIKE ('SYS%') 
 ORDER BY 1;
-'@ | &"sqlplus" "-S" "/@$DBName"
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
                     if ($Output.Contains("ORA-")) {
                         $Output = "$($Output.Substring(0,75))..." 
                         $DBProps=[ordered]@{
@@ -264,6 +271,7 @@ ORDER BY 1;
                                     $DBProps=[ordered]@{
                                         'DBName'=$DBName
                                         'Services'=$Line
+                                        'ErrorMsg'=""
                                     }
                                 }
                                 $DBObj = New-Object -TypeName PSOBject -Property $DBProps
@@ -273,19 +281,19 @@ ORDER BY 1;
                             $DBProps=[ordered]@{
                                 'DBName'=$DBName
                                 'Services'=$Output
+                                'ErrorMsg'=""
                             }
                             $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
                         }
                     }
                 } else { 
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
-                        'Services'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        'Services'=""
+                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                }
-                if (-not ($Table)) {
-                    Write-Output $DBObj
                 }
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
@@ -312,11 +320,21 @@ function Get-OracleVaultStatus
             ValueFromPipeline=$true)]
         # It can check several databases at once
         [String[]]$TargetDB,
-        # Switch to get individual output during the run or all together at the end
-        [Switch]$Streamed
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
     )
     Process {
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $TargetDB) {
                     $Output=@'
@@ -328,7 +346,7 @@ SELECT comp_name as name, status, modified
 FROM dba_registry
 WHERE comp_name LIKE '%Label%'
 OR comp_name LIKE '%Vault%';
-'@ | &"sqlplus" "-S" "/@$DBName"
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
                     if ($Output.Contains("ORA-")) {
                         $Output = "$($Output.Substring(0,75))..." 
                     }
@@ -336,6 +354,7 @@ OR comp_name LIKE '%Vault%';
                         $DBProps=[ordered]@{
                             'DBName'=$DBName
                             'Component'=$Line
+                            'ErrorMsg'=""
                         }
                         $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                         Write-Output $DBObj
@@ -344,7 +363,8 @@ OR comp_name LIKE '%Vault%';
                 } else { 
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
-                        'Component'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        'Component'=""
+                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                     Write-Output $DBObj
@@ -375,8 +395,12 @@ function Get-OracleName {
             HelpMessage="One or more Oracle Database names")]
         [Alias("DBName")]
         [String[]]$TargetDB,
-        # Switch to get individual output during the run or all together at the end
-        [Switch]$Streamed,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -384,6 +408,12 @@ function Get-OracleName {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
                 if (($DBName)) {
                     if (Ping-OracleDB -TargetDB $DBName) {
@@ -402,18 +432,19 @@ SELECT db_unique_name FROM v`$database;
 SELECT instance_name FROM v`$instance;
 SELECT host_name FROM v`$instance;
 exit
-"@ | &"sqlplus" "-S" "/@$DBName"
+"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
                         $ErrorInOutput=$false
                         foreach ($Line in $Output) {
                             if ($Line.Contains("ORA-")) {
                                 $ErrorInOutput=$true
                                 $Line = "$($Line.Substring(0,25))..." 
                                 $DBProps=[ordered]@{
-                                    'DBName'=[String]$DBName
-                                    'GlobalName'=[String]"--------"
-                                    'UniqueName'=[String]"--------"
-                                    'InstanceName'=[String]"--------"
-                                    'HostName'=[String]$Line
+                                    [String]'DBName'=$DBName
+                                    [String]'GlobalName'=""
+                                    [String]'UniqueName'=""
+                                    [String]'InstanceName'=""
+                                    [String]'HostName'=""
+                                    [String]'ErrorMsg'=$Output
                                 }
                                 $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                                 Write-Output $DBObj
@@ -422,11 +453,11 @@ exit
                         }
                         if (-not $ErrorInOutput) {
                             $DBProps=[ordered]@{
-                                'DBName'=[String]$DBName
-                                'GlobalName'=[String]$Output[0]
-                                'UniqueName'=[String]$Output[1]
-                                'InstanceName'=[String[]]$Output[2]
-                                'HostName'=[String[]]$Output[3]
+                                [String]'DBName'=$DBName
+                                [String]'GlobalName'=$Output[0]
+                                [String]'UniqueName'=$Output[1]
+                                [String]'InstanceName'=$Output[2]
+                                [String]'HostName'=$Output[3]
                             }
                             $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                             Write-Output $DBObj
@@ -471,7 +502,13 @@ function Get-OracleInstances {
             ValueFromPipeline=$true,
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="Target Oracle Database name")]
-        [String]$TargetDB,
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -479,14 +516,70 @@ function Get-OracleInstances {
     Begin{}
     Process{
         if (Test-OracleEnv) {
-			Write-Debug "Database pinged successfully"
-            # Using here-string to pipe the SQL query to SQL*Plus
-            @'
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            foreach ( $DBName in $TargetDB) {
+                if (Ping-OracleDB -TargetDB $DBName) {
+		            Write-Debug "Database pinged successfully"
+                    # Using here-string to pipe the SQL query to SQL*Plus
+                    $Output = @'
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT instance_name from gv$instance ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "/@$TargetDB"
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if ($Line.Contains("ORA-")) {
+                            $ErrorInOutput=$true
+                            $Line = "$($Line.Substring(0,25))..." 
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'InstanceName'=""
+                                [String]'ErrorMsg'=$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        if ($Table) {
+                            foreach ($Line in $($Output -split " ")) {
+                                if ($Line.trim().Length -gt 0) {
+                                    $DBProps=[ordered]@{
+                                        [String]'DBName'=$DBName
+                                        [String]'InstanceName'=$Line
+                                        [String]'ErrorMsg'=""
+                                    }
+                                }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Output $DBObj
+                            }
+                        } else {
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'InstanceName'=$Output
+                                [String]'ErrorMsg'=""
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                        }
+                    }
+                } else { 
+                    $DBProps = [ordered]@{
+                        [String]'DBName'=$DBName
+                        [String]'InstanceName'=""
+                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                    Write-Output $DBObj
+                }
+            }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -513,8 +606,13 @@ function Get-OracleHosts {
             ValueFromPipeline=$true,
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="Target Oracle Database name")]
-        [String]$TargetDB,
-
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -522,14 +620,56 @@ function Get-OracleHosts {
     Begin{}
     Process{
         if (Test-OracleEnv) {
-			Write-Debug "Database pinged successfully"
-            # Using here-string to pipe the SQL query to SQL*Plus
-            @'
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            foreach ($DBName in $TargetDB) {
+                if (Ping-OracleDB -TargetDB $DBName) {
+			        Write-Debug "Database pinged successfully"
+                    # Using here-string to pipe the SQL query to SQL*Plus
+                    $Output = @'
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT host_name from gv$instance ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "/@$TargetDB"
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if ($Line.Contains("ORA-")) {
+                            $ErrorInOutput=$true
+                            $Line = "$($Line.Substring(0,25))..." 
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'HostName'=""
+                                [String]'ErrorMsg'=[String]$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        $DBProps = [ordered]@{
+                            [String]'DBName'=$TargetDB
+                            [String]'HostName'=$Output
+                            [String]'ErrorMsg'=""
+                        }
+                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                        Write-Output $DBObj
+                    }
+                } else { 
+                    $DBProps = [ordered]@{
+                        [String]'DBName'=$DBName
+                        [String]'HostName'=""
+                        [String]'ErrorMsg'=$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                    Write-Output $DBObj
+                }
+            }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -557,8 +697,12 @@ function Get-OracleDBID {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
         [String[]]$TargetDB,
-        # Switch to get individual output during the run or all together at the end
-        [Switch]$Streamed,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -566,22 +710,56 @@ function Get-OracleDBID {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB($DBName)) {
 					Write-Debug "Database pinged successfully"
                     # Using here-string to pipe the SQL query to SQL*Plus
-                    @'
+                   $Output =  @'
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT dbid FROM v$database;
 exit
-'@ | &"sqlplus" "-S" "/@$DBName"
-                } else {
-                    Write-Logger -Error -Message "Database $DBName not reachable" | Out-File $ErrorLogFile
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if ($Line.Contains("ORA-")) {
+                            $ErrorInOutput=$true
+                            $Line = "$($Line.Substring(0,25))..." 
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'DBID'=""
+                                [String]'ErrorMsg'=[String]$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        $DBProps = [ordered]@{
+                            [String]'DBName'=$TargetDB
+                            [String]'DBID'=$Output
+                            [String]'ErrorMsg'=""
+                        }
+                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                        Write-Output $DBObj
+                    }
+                } else { 
+                    $DBProps = [ordered]@{
+                        [String]'DBName'=$DBName
+                        [String]'DBID'=""
+                        [String]'ErrorMsg'=$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                    Write-Output $DBObj
                 }
-                if ($Streamed) { $Output } else { $TotalOtput += "`n$Output" }
             }
-            if (-not $Streamed) { $TotalOtput }
         } else {
             Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -609,7 +787,12 @@ function Get-OracleSnapshot {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="One or more Oracle Database names")]
         [String]$TargetDB,
-
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # This is the time for the permoance snapshot
         [Parameter(Mandatory=$true,
             HelpMessage="Snapshot approximate time")]
@@ -626,6 +809,12 @@ function Get-OracleSnapshot {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
 			Write-Debug "Database pinged successfully"
             if ($Mark -eq "start") {
                 $StrTimeStamp = $TimeStamp.AddSeconds(50).ToString("yyyy-MM-dd HH:mm:ss")
@@ -679,21 +868,24 @@ function Get-OracleSnapshotTime {
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # This can be a list of databases
         [Parameter(Mandatory=$true,
             HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
-
         # This is the snapshot to use to query the time
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
         [bigint]$Snapshot,
-
+        # Mark that defines if the snapshot is upper or lower boundary to the analysis
         [Parameter(Mandatory=$true)]
         [ValidateSet("start","end")]
         [String]$Mark,
-
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -701,6 +893,12 @@ function Get-OracleSnapshotTime {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             # Using here-string to pipe the SQL query to SQL*Plus
             if ($Mark -eq "start") {
                 @"
@@ -748,18 +946,20 @@ function Get-OracleADDMInstanceReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Target Database
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Instance name")]
         [String]$Instance,
-
         # This is the DBID of the target database
         [Parameter(Mandatory=$true,
             HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
-
-
         # This is the starting snapshot for the Report scope
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
@@ -768,7 +968,6 @@ function Get-OracleADDMInstanceReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
         [bigint]$EndSnapshot,
-
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -776,6 +975,12 @@ function Get-OracleADDMInstanceReport {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             $InstNumber = $Instance.Substring($Instance.Length-1)
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -817,12 +1022,16 @@ function Get-OracleAWRReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # This can be a list of databases
         [Parameter(Mandatory=$true,
             HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
-
         # This is the starting snapshot for the Report scope
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
@@ -831,7 +1040,6 @@ function Get-OracleAWRReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
         [bigint]$EndSnapshot,
-
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -839,6 +1047,12 @@ function Get-OracleAWRReport {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
 			Write-Logger -Notice -Message "Launching AWR Global Report"
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -878,18 +1092,20 @@ function Get-OracleAWRInstanceReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # Target Database
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Instance name")]
         [String]$Instance,
-
         # This is the DBID of the target database
         [Parameter(Mandatory=$true,
             HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
-
-
         # This is the starting snapshot for the Report scope
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
@@ -898,7 +1114,6 @@ function Get-OracleAWRInstanceReport {
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
         [bigint]$EndSnapshot,
-
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -906,6 +1121,12 @@ function Get-OracleAWRInstanceReport {
     Begin{}
     Process{
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             $InstNumber = $Instance.Substring($Instance.Length-1)
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
@@ -950,6 +1171,12 @@ function Get-OraclePerfReports {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="Target Oracle Database names")]
         [String]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # This is the starting time for the performance snapshot
         [Parameter(Mandatory=$true,
             HelpMessage="Starting snapshot approximate time")]
@@ -980,10 +1207,16 @@ function Get-OraclePerfReports {
     Process {
         Write-Logger -Info -Message "PS Oracle Performance Reports Generator"
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             if (Ping-OracleDB -TargetDB $TargetDB) {
 				Write-Logger -Notice -Message "Database pinged successfully"
                 Write-Logger -Info -Message "Gathering DBID"
-                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB
+                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select -Property DBID
                 [bigint]$DBID = $TempStr.Trim(' ')
                 Write-Logger -Notice -Message "DBID for $TargetDB : $DBID"
                 Write-Logger -Info -Message "Getting Snapshot numbers"
@@ -1070,6 +1303,12 @@ function Use-OracleDB {
             Position=0,
             HelpMessage="One or more Oracle Database names")]
         [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
         # It can run several scripts at once
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
@@ -1084,7 +1323,6 @@ function Use-OracleDB {
             Position=1,
             HelpMessage="SQL query to run on the databases")]
         [String[]]$SQLQuery,
-
         [Parameter(
             HelpMessage="Dump results to an output file")]
         [Switch]$Dump,
@@ -1097,13 +1335,13 @@ function Use-OracleDB {
         [Switch]$HTML,
         [Parameter(
             HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
-        [Switch]$ToPipeline,
+        [Switch]$Silent,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
     )
     Begin{
-        if (-not $ToPipeline) {Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"}
+        if (-not $Silent) {Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"}
 
     }
     Process{
@@ -1161,7 +1399,7 @@ a {
 # Oracle HTML Tail to close the body and html tags on the HTML output from the Oracle Database
             $OracleHtmlTail = "</body></html>"
         }
-        if ($ToPipeline) {
+        if ($Silent) {
             $PipelineSettings=@"
 SET PAGESIZE 0
 SET FEEDBACK OFF
@@ -1172,50 +1410,56 @@ SET WRAP OFF
 SET HEADING OFF
 "@
         }
-        if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Oracle variables..."}
+        if (-not $Silent) {Write-Logger -Info -Message "Checking Oracle variables..."}
         if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
             foreach ($DBName in $TargetDB) {
-                if (-not $ToPipeline) {Write-Logger -Info -Message "Trying to reach database $DBName..."}
+                if (-not $Silent) {Write-Logger -Info -Message "Trying to reach database $DBName..."}
                 if (Ping-OracleDB -TargetDB $DBName) {
-                    if (-not $ToPipeline) {Write-Logger -Notice -Message "Database $DBName is reachable"}
-                    if (-not $ToPipeline) {Write-Logger -Info -Message "Checking Run-Mode..."}
+                    if (-not $Silent) {Write-Logger -Notice -Message "Database $DBName is reachable"}
+                    if (-not $Silent) {Write-Logger -Info -Message "Checking Run-Mode..."}
                     if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
-                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Script Mode"}
-                        if (-not $ToPipeline) {Write-Logger -Info -Message "Checking script for settings and exit string"}
+                        if (-not $Silent) {Write-Logger -Info -Message "Running on Script Mode"}
+                        if (-not $Silent) {Write-Logger -Info -Message "Checking script for settings and exit string"}
                         $tmpScript = Get-Content -Path $SQLScript
                         $toExecute = "$env:TEMP/runthis_$PID.sql"
                         "-- AUTOGENERATED TEMPORARY FILE" | Out-File -Encoding ASCII $toExecute
                         if ($HTML) {
                         Write-Logger -Notice -Message "Adding HTML output setting"
-                        if (-not $ToPipeline) {"SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append}
+                        if (-not $Silent) {"SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append}
                         }
                         foreach ($line in $tmpScript) {
                             "$line" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         if(-not $tmpScript[-1].ToLower().Contains("exit")) {
-                        if (-not $ToPipeline) {Write-Logger -Notice -Message "Adding EXIT command"}
+                        if (-not $Silent) {Write-Logger -Notice -Message "Adding EXIT command"}
                         "exit;" | Out-File -Encoding ASCII $toExecute -Append
                         }
-                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running script. Please wait..."}
-                        $Output = &"sqlplus" "-S" "/@$DBName" "@$toExecute"
+                        if (-not $Silent) {Write-Logger -Info -Message "Running script. Please wait..."}
+                        $Output = &"sqlplus" "-S" "$DBUser/$DBPass@$DBName" "@$toExecute"
                     } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
-                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running on Command Mode"}
+                        if (-not $Silent) {Write-Logger -Info -Message "Running on Command Mode"}
                         if ($HTML) {
-                            if (-not $ToPipeline) {Write-Logger -Notice -Message "Adding HTML setting to the command line"}
+                            if (-not $Silent) {Write-Logger -Notice -Message "Adding HTML setting to the command line"}
                             $SQLQuery = @"
 SET MARKUP HTML ON
 $SQLQuery
 "@
                         }
-                        if (-not $ToPipeline) {Write-Logger -Info -Message "Running query on the database..."}
+                        if (-not $Silent) {Write-Logger -Info -Message "Running query on the database..."}
                         $Output = @"
 $PipelineSettings
 $SQLQuery
 exit;
-"@ | &"sqlplus" "-S" "/@$DBName"
+"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
 
                     } else {
-                        if (-not $ToPipeline) {Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
+                        if (-not $Silent) {Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
                         exit
                     }
                     if ($Dump) {
@@ -1238,10 +1482,10 @@ exit;
         }
     }
     End{
-        if (-not $ToPipeline) {Write-Logger -Info -Message "Finished the runs, cleaning up..."}
+        if (-not $Silent) {Write-Logger -Info -Message "Finished the runs, cleaning up..."}
         if($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
             Remove-Item -Path $toExecute
         }
-        if (-not $ToPipeline) {Write-Logger -Info -Message "Thanks for using this script."}
+        if (-not $Silent) {Write-Logger -Info -Message "Thanks for using this script."}
     }
 }
