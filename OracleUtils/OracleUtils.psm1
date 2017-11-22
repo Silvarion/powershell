@@ -135,7 +135,9 @@ function Get-OracleDBInfo {
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Pinging database" -PercentComplete 10
                 if (Ping-OracleDB -TargetDB $TargetDB) {
+                    Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Querying database" -PercentComplete 20
                     $Output = @'
 SET LINESIZE 9999
 SET PAGESIZE 0
@@ -143,6 +145,7 @@ SET HEADING OFF
 SET FEEDBACK OFF
 COLUMN unique_name FORMAT a11
 COLUMN global_name FORMAT a11
+SELECT dbid FROM v$database;
 SELECT db_unique_name FROM v$database;
 SELECT global_name FROM global_name;
 SELECT listagg(instance_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
@@ -151,21 +154,23 @@ SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE 
 SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%';
 SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
 '@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Analysing output" -PercentComplete 50
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
                             $ErrorInOutput=$true
                             $Line = "$($Line.Substring(0,25))..." 
                             $DBProps=[ordered]@{
-                                'DBName'=[String]$DBName
-                                'GlobalName'=[String]"--------"
-                                'UniqueName'=[String]"--------"
-                                'InstanceName'=[String]"--------"
-                                'HostName'=[String]"--------"
-                                'ActiveServices'=[String]"--------"
-                                'Services'=[String]"--------"
-                                'Users'=[String]"--------"
-                                'ErrorMsg'=[String]$Line
+                                [String]'DBName'=[String]$DBName
+                                [String]'DBID'=""
+                                [String]'GlobalName'=""
+                                [String]'UniqueName'=""
+                                [String]'InstanceName'=""
+                                [String]'HostName'=""
+                                [String]'ActiveServices'=""
+                                [String]'Services'=""
+                                [String]'Users'=""
+                                [String]'ErrorMsg'=$Line
                             }
                             $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                             Write-Output $DBObj
@@ -173,31 +178,34 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                         }
                     }
                     if (-not $ErrorInOutput) {
+                        Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Building output object" -PercentComplete 85
                         $DBProps = [ordered]@{
-                            'DBName'=[String]$TargetDB
-                            'UniqueName'=[String]$Output[0]
-                            'GlobalName'=[String]$Output[1]
-                            'Instances'=[String]$Output[2]
-                            'Hosts'=[String]$Output[3]
-                            'ActiveServices'=[String]$Output[4]
-                            'Services'=[String]$Output[5]
-                            'Users'=[String]$Output[6]
-                            'ErrorMsg'="--------"
+                            [String]'DBName'=$DBName
+                            [String]'DBID'=$Output[0]
+                            [String]'UniqueName'=$Output[1]
+                            [String]'GlobalName'=$Output[2]
+                            [String]'Instances'=$Output[3]
+                            [String]'Hosts'=$Output[4]
+                            [String]'ActiveServices'=$Output[5]
+                            [String]'Services'=$Output[6]
+                            [String]'Users'=$Output[7]
+                            [String]'ErrorMsg'=""
                         }
                         $DBObj=New-Object -TypeName PSObject -Property $DBProps
                         Write-Output $DBObj
                     }
                 } else { 
                     $DBProps = [ordered]@{
-                        'DBName'=$DBName
-                        'GlobalName'=[String]"--------"
-                        'UniqueName'=[String]"--------"
-                        'InstanceName'=[String]"--------"
-                        'HostName'=[String]"--------"
-                        'ActiveServices'=[String]"--------"
-                        'Services'=[String]"--------"
-                        'Users'=[String]"--------"
-                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        [String]'DBName'=[String]$DBName
+                        [String]'DBID'=""
+                        [String]'GlobalName'=""
+                        [String]'UniqueName'=""
+                        [String]'InstanceName'=""
+                        [String]'HostName'=""
+                        [String]'ActiveServices'=""
+                        [String]'Services'=""
+                        [String]'Users'=""
+                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj=New-Object -TypeName PSObject -Property $DBProps
                     Write-Output $DBObj
@@ -245,7 +253,9 @@ function Get-OracleServices
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                     $Output = @'
 SET PAGESIZE 0
 SET HEADING OFF
@@ -257,14 +267,24 @@ FROM v$active_services
 WHERE name NOT LIKE ('SYS%') 
 ORDER BY 1;
 '@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
-                    if ($Output.Contains("ORA-")) {
-                        $Output = "$($Output.Substring(0,75))..." 
-                        $DBProps=[ordered]@{
-                            'DBName'=$DBName
-                            'Services'=$Output
+                    Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if (($Line.Contains("ORA-")) -or
+                            ($Line.Contains("TNS-"))) {
+                            $ErrorInOutput=$true
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=[String]$DBName
+                                [String]'Services'=""
+                                [String]'ErrorMsg'=$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
                         }
-                        $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                    } else {
+                    }
+                    if (-not $ErrorInOutput) {
+                        Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Building $DBName output" -PercentComplete 65
                         if ($Table) {
                             foreach ($Line in $($Output -split " ")) {
                                 if ($Line.trim().Length -gt 0) {
@@ -294,8 +314,10 @@ ORDER BY 1;
                         'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                    Write-Output $DBObj
                 }
             }
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
