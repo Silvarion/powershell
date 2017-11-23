@@ -286,7 +286,7 @@ ORDER BY 1;
                     if (-not $ErrorInOutput) {
                         Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Building $DBName output" -PercentComplete 65
                         if ($Table) {
-                            foreach ($Line in $($Output -split " ")) {
+                            foreach ($Line in $($Output -split "`t")) {
                                 if ($Line.trim().Length -gt 0) {
                                     $DBProps=[ordered]@{
                                         'DBName'=$DBName
@@ -499,7 +499,7 @@ exit
                 }
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -531,6 +531,8 @@ function Get-OracleInstances {
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
+        # Swtich to get output as table instead of lists
+        [Switch]$Table,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -571,7 +573,7 @@ exit
                     }
                     if (-not $ErrorInOutput) {
                         if ($Table) {
-                            foreach ($Line in $($Output -split " ")) {
+                            foreach ($Line in $($Output -split "`t")) {
                                 if ($Line.trim().Length -gt 0) {
                                     $DBProps=[ordered]@{
                                         [String]'DBName'=$DBName
@@ -603,7 +605,7 @@ exit
                 }
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -635,6 +637,8 @@ function Get-OracleHosts {
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
+        # Swtich to get output as table instead of lists
+        [Switch]$Table,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -665,8 +669,8 @@ exit
                             $Line = "$($Line.Substring(0,25))..." 
                             $DBProps=[ordered]@{
                                 [String]'DBName'=$DBName
-                                [String]'HostName'=""
-                                [String]'ErrorMsg'=[String]$Line
+                                [String]'Hosts'=""
+                                [String]'ErrorMsg'=$Line
                             }
                             $DBObj = New-Object -TypeName PSOBject -Property $DBProps
                             Write-Output $DBObj
@@ -674,29 +678,165 @@ exit
                         }
                     }
                     if (-not $ErrorInOutput) {
-                        $DBProps = [ordered]@{
-                            [String]'DBName'=$TargetDB
-                            [String]'HostName'=$Output
-                            [String]'ErrorMsg'=""
+                        if ($Table) {
+                            foreach ($Line in $($Output -split "`t")) {
+                                if ($Line.trim().Length -gt 0) {
+                                    $DBProps=[ordered]@{
+                                        [String]'DBName'=$DBName
+                                        [String]'Hosts'=$Line
+                                        [String]'ErrorMsg'=""
+                                    }
+                                }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Output $DBObj
+                            }
+                        } else {
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'Hosts'=$Output
+                                [String]'ErrorMsg'=""
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
                         }
-                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                        Write-Output $DBObj
                     }
                 } else { 
                     $DBProps = [ordered]@{
                         [String]'DBName'=$DBName
-                        [String]'HostName'=""
-                        [String]'ErrorMsg'=$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        [String]'Hosts'=""
+                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
                     }
                     $DBObj=New-Object -TypeName PSObject -Property $DBProps
                     Write-Output $DBObj
                 }
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
+}
+
+<#
+.Synopsis
+    Query an Oracle database to get the names of all its hosts
+.DESCRIPTION
+    This function returns host names for a target oracle database
+.EXAMPLE
+    Get-OracleHosts -TargetDB <DB NAME> [-ErrorLog]
+.ROLE
+   This cmdlet is mean to be used by Oracle DBAs
+#>
+function Get-OracleUsers {
+    [CmdletBinding()]
+    [Alias("orauser")]
+    Param (
+        # This can be a list of databases
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Swtich to get output as table instead of lists
+        [Switch]$Table,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{}
+    Process{
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Pinging Database" -PercentComplete 10
+                if (Ping-OracleDB -TargetDB $DBName) {
+			        Write-Debug "Database pinged successfully"
+                    # Using here-string to pipe the SQL query to SQL*Plus
+                    Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Querying Database" -PercentComplete 30
+                    $Output = @'
+SET HEADING OFF
+SET PAGESIZE 0
+SET LINESIZE 999
+SET FEEDBACK OFF
+SELECT username||':'||account_status
+FROM dba_users 
+WHERE username NOT IN ('SYS','SYSTEM','SYSAUX','DBSNMP') 
+ORDER BY 1;
+exit
+'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Checking Output" -PercentComplete 50 -Id 100
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if ($Line.Contains("ORA-")) {
+                            $ErrorInOutput=$true
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'Users'=""
+                                [String]'ErrorMsg'=$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Building Output Object" -PercentComplete 90 -id 100
+                        if ($Table) {
+                            $TotalRows = $Output.Length
+                            $Counter = 0
+                            Write-Progress -Activity "Building users table from $DBName..." -CurrentOperation "Pinging Database" -PercentComplete $(($Counter++ / ($TotalRows)*100)) -ParentId 100
+                            foreach ($Line in $($Output -split "`t")) {
+                                if ($Line.trim().Length -gt 0) {
+                                    $DBProps=[ordered]@{
+                                        [String]'DBName'=$DBName
+                                        [String]'Users'=$($Line -split ':')[0]
+                                        [String]'Status'=$($Line -split ':')[1]
+                                        [String]'ErrorMsg'=""
+                                    }
+                                }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Progress -Activity "Building users table from $DBName..." -CurrentOperation "Adding User $($DBObj.Users)" -PercentComplete $(($Counter++ / ($TotalRows)*100)) -ParentId 100
+                                Write-Output $DBObj
+                            }
+                        } else {
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=$DBName
+                                [String]'Users'=$Output
+                                [String]'ErrorMsg'=""
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                        }
+                    }
+                } else { 
+                    $DBProps = [ordered]@{
+                        [String]'DBName'=$DBName
+                        [String]'Users'=""
+                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
+                    Write-Output $DBObj
+                }
+            }
+            Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
+        } else {
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
+        }
+    }
+    End{
+        Write-Progress -Activity "Gathering Users on $DBName..." -Completed
+    }
 }
 
 <#
@@ -783,7 +923,7 @@ exit
                 }
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -866,7 +1006,7 @@ EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -944,7 +1084,7 @@ EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -1020,7 +1160,7 @@ exit;
 EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -1090,7 +1230,7 @@ exit;
 EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -1166,7 +1306,7 @@ exit;
 EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{}
@@ -1481,7 +1621,7 @@ exit;
 "@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
 
                     } else {
-                        if (-not $Silent) {Write-Logger -Error -Message "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
+                        if (-not $Silent) {Write-Error "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
                         exit
                     }
                     if ($Dump) {
@@ -1496,11 +1636,11 @@ exit;
                         $Output
                     }
                 } else {
-                    Write-Logger -Error -Message "Database $DBName not reachable"
+                    Write-Error "Database $DBName not reachable"
                 }
             }
         } else {
-            Write-Logger -Error -Message "No Oracle Home detected, please install at least the Oracle Client and try again"
+            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
     }
     End{
