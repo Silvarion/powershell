@@ -364,7 +364,7 @@ COLUMN name FORMAT a21
 COLUMN status FORMAT a5
 SET HEADING OFF
 SET FEEDBACK OFF
-SELECT comp_name as name, status, modified
+SELECT comp_name as name||':'||status||':'||modified
 FROM dba_registry
 WHERE comp_name LIKE '%Label%'
 OR comp_name LIKE '%Vault%';
@@ -375,7 +375,9 @@ OR comp_name LIKE '%Vault%';
                     foreach ($Line in [String[]]$($Output -split "`n")) {
                         $DBProps=[ordered]@{
                             'DBName'=$DBName
-                            'Component'=$Line
+                            'Component'=$($Line -split ':')[0]
+                            'Status'=$($Line -split ':')[1]
+                            'Modified'=$($Line -split ':')[2]
                             'ErrorMsg'=""
                         }
                         $DBObj = New-Object -TypeName PSOBject -Property $DBProps
