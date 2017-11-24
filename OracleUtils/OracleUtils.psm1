@@ -29,7 +29,7 @@ function Test-OracleEnv {
     Param()
     Process {
         if ($env:ORACLE_HOME.Length -gt 0) {
-            if ($(Get-ChildItem -Path "$env:ORACLE_HOME/bin" -Filter "sqlplus.exe").Exists) {
+            if ($(Get-ChildItem -Path "$env:ORACLE_HOME/bin" -Filter "sqlplus*").Exists) {
                 $true
             } else {
                 $false
@@ -1380,7 +1380,7 @@ function Get-OraclePerfReports {
             if (Ping-OracleDB -TargetDB $TargetDB) {
 				Write-Logger -Notice -Message "Database pinged successfully"
                 Write-Logger -Info -Message "Gathering DBID"
-                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select -Property DBID
+                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select -ExpandProperty DBID
                 [bigint]$DBID = $TempStr.Trim(' ')
                 Write-Logger -Notice -Message "DBID for $TargetDB : $DBID"
                 Write-Logger -Info -Message "Getting Snapshot numbers"
@@ -1653,3 +1653,28 @@ exit;
         if (-not $Silent) {Write-Logger -Info -Message "Thanks for using this script."}
     }
 }
+
+# SIG # Begin Signature block
+# MIID9jCCAt6gAwIBAgIJAIxehrC8IAp5MA0GCSqGSIb3DQEBBQUAMIGiMQswCQYD
+# VQQGEwJDUjEQMA4GA1UECBMHSGVyZWRpYTEQMA4GA1UEBxMHSGVyZWRpYTEUMBIG
+# A1UEChMLSW5kZXBlbmRlbnQxEzARBgNVBAsTClBvd2Vyc2hlbGwxFjAUBgNVBAMT
+# DUplc3VzIFNhbmNoZXoxLDAqBgkqhkiG9w0BCQEWHWpzYW5jaGV6LmNvbnN1bHRh
+# bnRAZ21haWwuY29tMB4XDTE3MTEyNDE2Mzc1MloXDTI3MTEyNTE2Mzc1MlowgaIx
+# CzAJBgNVBAYTAkNSMRAwDgYDVQQIEwdIZXJlZGlhMRAwDgYDVQQHEwdIZXJlZGlh
+# MRQwEgYDVQQKEwtJbmRlcGVuZGVudDETMBEGA1UECxMKUG93ZXJzaGVsbDEWMBQG
+# A1UEAxMNSmVzdXMgU2FuY2hlejEsMCoGCSqGSIb3DQEJARYdanNhbmNoZXouY29u
+# c3VsdGFudEBnbWFpbC5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB
+# AQDS04f1yYYM/O3YlvlLGtEldsS8jBPP/c5kxrZz23Zj2p7wa56nWVpaOZLjJtqM
+# Za/F/h3kclyxAXP9Xq7NA+heARYvY+64EGZqa3abuTbRSCvGB+WII/3snegbuaTD
+# Nfi6NhuYZZezK7gHchgXtkPRQAAveT6mHwx2mT+RBRJ6iiDvxi+oBYySS8PU7pEa
+# t70vAfur4Bi8NtJSsTOr3aC85eRIPnfauGbSeH+CeEQvVEBH3wsqn3NQB6oOWUMA
+# UoaV2Lfn2KtFw5tENpo7CRMBDm5ar4h9oOEb4mIm4bDpgKLej7HsxRX6KCrJshlJ
+# I26p0Y2LvRCpv73qYe44rsLhAgMBAAGjLTArMAkGA1UdEwQCMAAwEQYJYIZIAYb4
+# QgEBBAQDAgTwMAsGA1UdDwQEAwIFIDANBgkqhkiG9w0BAQUFAAOCAQEAfhABlQsA
+# VlpUjhPNjUxvCW2K2YPzSrv09l/yg5oBPMG+XQ5q1ZGA8cm7YUXlgu73rZXOeYjm
+# r5GFCI+1LP0ol1KHFGNxGXKB8iMStUPrZ4rLNR/ycOX0+ObOPmat6RECDattmpQl
+# F6Fo1Nm5eevwaagkqIDsIh1Jqt8kYMSvdYHXJ409Lwh4wIE/LP1zS9k6l+ZdDGGG
+# GG2Qb4VMncjCdR0Srp2zRL9xGUf4p9cZIAJOuLqTJDYEraS/+zsJMLwrkypYAZ9t
+# 0zGUG75Wc2MSSKrT2xuLuQIRKne/aal0usKhffqwqZ3/fc9XGGPUTIFFMbvsqQFf
+# kg9v3E07CsmxmQ==
+# SIG # End signature block
