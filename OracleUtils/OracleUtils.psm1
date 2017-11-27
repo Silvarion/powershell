@@ -324,6 +324,261 @@ ORDER BY 1;
 
 <#
 .Synopsis
+   Returns the Active Services in an Oracle DB
+.DESCRIPTION
+   This function returns the Active Services in an Oracle DB
+.EXAMPLE
+    Get-OracleServices -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+#>
+function Get-OracleSize
+{
+    [CmdletBinding()]
+    [Alias("orasize")]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Size types
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Full","Storage","Tablespace","Table")]
+        [String]$SizeType
+    )
+    Process {
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            $FileSystemQuery = @"
+SELECT GLOBAL_NAME||','||substr(file_name,1,instr(file_name,'/',-1))||',used:'||round(SUM(user_bytes/1024/1024/1024),2)||',alloc:'||round(SUM(BYTES/1024/1024/1024),2)||',max:'||round(SUM(maxbytes/1024/1024/1024),2)
+FROM dba_data_files, GLOBAL_NAME
+GROUP BY global_name, substr(file_name,1,instr(file_name,'/',-1))
+UNION ALL
+SELECT global_name||','||NAME||',used:'||ROUND(space_used/1024/1024/1024,2)||',alloc:'||ROUND(space_limit/1024/1024/1024,2)||',max:'||ROUND(space_limit/1024/1024/1024,2)
+FROM v`$recovery_file_dest, global_name;
+"@
+            $TableSpaceQuery = @"
+SELECT global_name||','||tablespace_name ||',used:'||used_gb||',max:'||max_gb
+FROM (
+	SELECT global_name, df.tablespace_name
+		, round(SUM(df.BYTES / 1024 / 1024 / 1024), 2) used_gb
+		, round(SUM(df.maxbytes / 1024 / 1024 / 1024), 2) max_gb
+	FROM dba_data_files df, dba_tablespaces ts, global_name
+	WHERE df.tablespace_name = ts.tablespace_name
+	GROUP BY global_name, df.tablespace_name, round(ts.max_size / 1024 / 1024 / 1024, 2)
+	ORDER BY tablespace_name
+);
+"@
+            $TableQuery = @"
+SELECT global_name||','||x.owner||'.'||x.table_name||',used:'||round(SUM(bytes) / 1024 / 1024 / 1024, 2)||',num_rows:'||nvl(z.num_rows, 0)
+	FROM ( SELECT b.segment_name table_name, b.owner, b.bytes
+		FROM dba_segments b
+		WHERE b.segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
+		UNION ALL
+		SELECT i.table_name, i.owner, s.bytes
+		FROM dba_indexes i, dba_segments s
+		WHERE s.segment_name = i.index_name
+			AND s.owner = i.owner
+			AND s.segment_type IN ('INDEX', 'INDEX PARTITION', 'INDEX SUBPARTITION')
+		UNION ALL
+		SELECT l.table_name, l.owner, s.bytes
+		FROM dba_lobs l, dba_segments s
+		WHERE s.segment_name = l.segment_name
+			AND s.owner = l.owner
+			AND s.segment_type IN ('LOBSEGMENT', 'LOB PARTITION')
+		UNION ALL
+		SELECT l.table_name, l.owner, s.bytes
+		FROM dba_lobs l, dba_segments s
+		WHERE s.segment_name = l.index_name
+			AND s.owner = l.owner
+			AND s.segment_type = 'LOBINDEX'
+		) x, dba_tables z, global_name
+	WHERE z.table_name = x.table_name
+		AND z.owner = x.owner
+	GROUP BY
+		global_name, trunc(SYSDATE), x.table_name, x.owner, nvl(z.num_rows, 0)
+	HAVING round(SUM(BYTES) / 1024 / 1024 / 1024, 2) >= 1;
+"@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                $ASMQuery = @"
+SELECT global_name||','||disk_group||',used:'||SUM(used_gb)||',alloc:'||SUM(alloc_gb)||',max:'||MIN(max_gb)
+FROM (
+    WITH file_hierarchy AS (
+        SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
+        FROM v`$asm_alias
+        CONNECT BY PRIOR reference_index = parent_index
+    )
+    SELECT TRIM(SUBSTR(fh.name,1,INSTR(fh.name,' ',2))) AS db_name, dg.name as DISK_GROUP, ROUND(af.BYTES/1024/1024/1024,2) AS USED_GB, ROUND(af.SPACE/1024/1024/1024,2) AS ALLOC_GB, ROUND(dg.TOTAL_MB/1024,2) AS MAX_GB
+    FROM v`$asm_diskgroup dg
+    JOIN v`$asm_file af
+        ON (af.group_number = dg.group_number)
+        JOIN file_hierarchy fh
+        ON (af.file_number = fh.file_number
+        AND dg.group_number = fh.group_number)
+    WHERE dg.NAME IN (
+        SELECT TRIM(REPLACE(value,'+',' ')) 
+        FROM v$`spparameter 
+        WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
+    )
+), global_name
+WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
+AND  UPPER(db_name) = UPPER('$DBName')
+GROUP BY global_name,db_name, disk_group
+ORDER BY DB_NAME;
+"@
+                $FullASMQuery = @"
+SELECT global_name||','||disk_group||',used:'||SUM(used_gb)||',alloc:'||SUM(alloc_gb)||',max:'||MIN(max_gb)
+FROM (
+    WITH file_hierarchy AS (
+        SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
+        FROM v`$asm_alias
+        CONNECT BY PRIOR reference_index = parent_index
+    )
+    SELECT TRIM(SUBSTR(fh.name,1,INSTR(fh.name,' ',2))) AS db_name, dg.name as DISK_GROUP, ROUND(af.BYTES/1024/1024/1024,2) AS USED_GB, ROUND(af.SPACE/1024/1024/1024,2) AS ALLOC_GB, ROUND(dg.TOTAL_MB/1024,2) AS MAX_GB
+    FROM v`$asm_diskgroup dg
+    JOIN v`$asm_file af
+        ON (af.group_number = dg.group_number)
+        JOIN file_hierarchy fh
+        ON (af.file_number = fh.file_number
+        AND dg.group_number = fh.group_number)
+    WHERE dg.NAME IN (
+        SELECT TRIM(REPLACE(value,'+',' ')) 
+        FROM v$`spparameter 
+        WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
+    )
+), global_name
+WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
+GROUP BY global_name,db_name, disk_group
+ORDER BY DB_NAME;
+"@
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    Switch ($SizeType) {
+                        "Full" {
+                            if ($(Get-OracleInstances -TargetDB $DBName -Table).Length -gt 1) {
+                                $Query = $ASMQuery
+                            } else {
+                                $Query = $FileSystemQuery
+                            }
+                        }
+                        "Storage" {
+                            if ($(Get-OracleInstances -TargetDB $DBName -Table).Length -gt 1) {
+                                $Query = $FullASMQuery
+                            } else {
+                                $Query = $FileSystemQuery
+                            }
+                        }
+                    }
+                    if ($SizeType -eq "Table") {
+                        $Query = $TableQuery
+                    } else {
+                        if ($FullSize) {
+                            if ($(Get-OracleInstances -TargetDB $DBName -Table).Length -gt 1) {
+                                $Query = $ASMQuery
+                            } else {
+                                $Query = $FileSystemQuery
+                            }
+                        }
+                        if ($TablespaceSize) {
+                            $Query = $TableSpaceQuery
+                        }
+                    }
+                    $Output = @"
+SET PAGESIZE 0
+SET HEADING OFF
+SET FEEDBACK OFF
+$Query
+"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+                    Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
+                    $ErrorInOutput=$false
+                    foreach ($Line in $Output) {
+                        if (($Line.Contains("ORA-")) -or
+                            ($Line.Contains("TNS-"))) {
+                            $ErrorInOutput=$true
+                            $DBProps=[ordered]@{
+                                [String]'DBName'=[String]$DBName
+                                [String]'Size'=""
+                                [String]'ErrorMsg'=$Line
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                            Break
+                        }
+                    }
+                    if (-not $ErrorInOutput) {
+                        Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Building $DBName output" -PercentComplete 65
+                        foreach ($Line in $($Output -split "`t")) {
+                            if ($Line.trim().Length -gt 0) {
+                                if ($SizeType -eq "Full") {
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$($Line -split ',')[0]
+                                        'Path'=$($Line -split ',')[1]
+                                        'Used'=[float]$($($Line -split ',')[2] -split ':')[1]
+                                        'Allocated'=[float]$($($Line -split ',')[3] -split ':')[1]
+                                        'Max'=[float]$($($Line -split ',')[4] -split ':')[1]
+                                        'ErrorMsg'=""
+                                    }
+                                } elseif ($SizeType -eq "Storage") {
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$($Line -split ',')[0]
+                                        'Path'=$($Line -split ',')[1]
+                                        'Used'=[float]$($($Line -split ',')[2] -split ':')[1]
+                                        'Allocated'=[float]$($($Line -split ',')[3] -split ':')[1]
+                                        'Max'=[float]$($($Line -split ',')[4] -split ':')[1]
+                                        'ErrorMsg'=""
+                                    }
+                                } elseif ($SizeType -eq "Tablespace") {
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$($Line -split ',')[0]
+                                        'Path'=$($Line -split ',')[1]
+                                        'Used'=[float]$($($Line -split ',')[2] -split ':')[1]
+                                        'Max'=[float]$($($Line -split ',')[3] -split ':')[1]
+                                        'ErrorMsg'=""
+                                    }
+                                } elseif ($SizeType -eq "Table") {
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$($Line -split ',')[0]
+                                        'Path'=$($Line -split ',')[1]
+                                        'Used'=[float]$($($Line -split ',')[2] -split ':')[1]
+                                        'Max'=[float]$($($Line -split ',')[3] -split ':')[1]
+                                        'ErrorMsg'=""
+                                    }
+                                }
+
+                            }
+                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                            Write-Output $DBObj
+                        }
+                    }
+                } else { 
+                    $DBProps=[ordered]@{
+                        'DBName'=$DBName
+                        'Services'=""
+                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                    }
+                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                    Write-Output $DBObj
+                }
+            }
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
+    }
+}
+
+<#
+.Synopsis
    Returns the status of Database Vault
 .DESCRIPTION
    This function returns the status of Database Vault in an Oracle DB
@@ -1653,6 +1908,7 @@ exit;
         if (-not $Silent) {Write-Logger -Info -Message "Thanks for using this script."}
     }
 }
+
 
 # SIG # Begin Signature block
 # MIID9jCCAt6gAwIBAgIJAIxehrC8IAp5MA0GCSqGSIb3DQEBBQUAMIGiMQswCQYD
