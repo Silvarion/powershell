@@ -439,7 +439,7 @@ GROUP BY global_name,db_name, disk_group
 ORDER BY DB_NAME;
 "@
                 $FullASMQuery = @"
-SELECT global_name||','||disk_group||',used:'||SUM(used_gb)||',alloc:'||SUM(alloc_gb)||',max:'||MIN(max_gb)
+SELECT db_name||','||disk_group||',used:'||SUM(used_gb)||',alloc:'||SUM(alloc_gb)||',max:'||MIN(max_gb)
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -455,12 +455,13 @@ FROM (
         AND dg.group_number = fh.group_number)
     WHERE dg.NAME IN (
         SELECT TRIM(REPLACE(value,'+',' ')) 
-        FROM v$`spparameter 
+        FROM v`$spparameter 
         WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
     )
-), global_name
-WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
-GROUP BY global_name,db_name, disk_group
+)
+WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE','TEMPFILE')
+AND db_name IS NOT NULL
+GROUP BY db_name, disk_group
 ORDER BY DB_NAME;
 "@
                 if (Ping-OracleDB -TargetDB $DBName) {
