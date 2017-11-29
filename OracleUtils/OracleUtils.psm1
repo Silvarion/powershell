@@ -47,12 +47,12 @@ function Test-OracleEnv {
    This functions returns $true if the tnsping is successful, $false otherwise
 .EXAMPLE
     if (Ping-OracleDB -TargetDB orcl) {
-        Write-Logger -Notice -Message "Database pinged successfully"
+        Write-Output "Database pinged successfully"
         <Some commands>
     }
 .EXAMPLE
     if (Ping-OracleDB -TargetDB orcl | Select -Property PingStatus) {
-        Write-Logger -Notice -Message "Database pinged successfully"
+        Write-Output "Database pinged successfully"
         <Some commands>
     } else {
         Write-Logger -Warning Ping-OracleDB -TargetDB orcl | Select -Property PingResult
@@ -1571,8 +1571,9 @@ function Get-OracleADDMInstanceReport {
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             $InstNumber = $Instance.Substring($Instance.Length-1)
+            Write-Verbose "Instance Number: $InstNumber"
             # Using here-string to pipe the SQL query to SQL*Plus
-            @"
+            $Output = @"
 define  db_name      = '$TargetDB';
 define  dbid         = $DBID;
 define  inst_num     = $InstNumber;
@@ -1586,6 +1587,7 @@ define  report_name  = 'addm_${Instance}_${StartSnapshot}_${EndSnapshot}_report.
 exit;
 EXIT
 "@ | &"sqlplus" "-S" "/@$TargetDB"
+            Write-Debug "$Output" 
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -1642,7 +1644,7 @@ function Get-OracleAWRReport {
                 }
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
-			Write-Logger -Notice -Message "Launching AWR Global Report"
+			Write-Output "Launching AWR Global Report"
             # Using here-string to pipe the SQL query to SQL*Plus
             @"
 define  db_name      = '$TargetDB';
@@ -1794,7 +1796,7 @@ function Get-OraclePerfReports {
         }
     }
     Process {
-        Write-Logger -Info -Message "PS Oracle Performance Reports Generator"
+        Write-Information "PS Oracle Performance Reports Generator"
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
                 if ($DBUser.Length -eq 0) {
@@ -1802,54 +1804,56 @@ function Get-OraclePerfReports {
                 }
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
+            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Pinging $TargetDB} Datbase"
             if (Ping-OracleDB -TargetDB $TargetDB) {
-				Write-Logger -Notice -Message "Database pinged successfully"
-                Write-Logger -Info -Message "Gathering DBID"
+				Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Database pinged successfully"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Gathering DBID"
                 [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select -ExpandProperty DBID
                 [bigint]$DBID = $TempStr.Trim(' ')
-                Write-Logger -Notice -Message "DBID for $TargetDB : $DBID"
-                Write-Logger -Info -Message "Getting Snapshot numbers"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "DBID for $TargetDB : $DBID"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Snapshot numbers"
                 [String]$StrSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $StartTime.AddSeconds(59).ToString("yyyy-MM-dd HH:mm:ss") -Mark start
                 [bigint]$StartSnapshot = [bigint]$StrSnapshot.trim(' ')
                 [String]$StrSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $EndTime.ToString("yyyy-MM-dd HH:mm:ss") -Mark end
                 [bigint]$EndSnapshot = [bigint]$StrSnapshot.trim(' ')
-				Write-Logger -Notice -Message "Starting Snapshot: $StartSnapshot | Ending Snapshot: $EndSnapshot"
-                Write-Logger -Info -Message "Getting Snapshot times"
+				Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot: $StartSnapshot | Ending Snapshot: $EndSnapshot"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Snapshot times"
                 [String]$StartSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $StartSnapshot -Mark start
                 [String]$EndSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $EndSnapshot -Mark end
-                Write-Logger -Notice -Message "Starting Snapshot Time: $StartSnapTime | Ending Snapshot Time: $EndSnapTime"
-                Write-Logger -Info -Message "Getting Oracle database instances"
-                $Instances = Get-OracleInstances -TargetDB $TargetDB
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot Time: $StartSnapTime | Ending Snapshot Time: $EndSnapTime"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Oracle database instances"
+                $Instances = Get-OracleInstances -TargetDB $TargetDB | Select -ExpandProperty InstanceName
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Instances found: $Instances"
                 if ($AWR) {
-                    Write-Logger -Info -Message "Generating AWR Report Set"
+                    Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Generating AWR Report Set"
                     $ORAOutput = Get-OracleAWRReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                     foreach ($Instance in $Instances) {
                         if ($Instance.Length -gt 0) {
-                            Write-Logger -Notice -Message "Launching AWR Instance Report for $Instance"
+                            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Launching AWR Instance Report for $Instance"
                             $ORAOutput = Get-OracleAWRInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                         }
                     }
                     if ($Compress) {
-                        Write-Logger -Info -Message "Compressing AWR reports set"
+                        Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing AWR reports set"
                         zip -9m AWR_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip awr*.htm*
                     }
                 }
                 if ($ADDM) {
-                    Write-Logger -Info -Message "Generating ADDM Report Set"
+                    Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Generating ADDM Report Set"
                     foreach ($Instance in $Instances) {
                         if ($Instance.Length -gt 0) {
-                            Write-Logger -Notice -Message "Launching ADDM Instance #$InstNumber Report for $Instance"
+                            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Launching ADDM Instance #$InstNumber Report for $Instance"
                             $ORAOutput = Get-OracleADDMInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
                         }
                     }
                     if ($Compress) {
-                        Write-Logger -Info -Message "Compressing ADDM reports set"
+                        Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing ADDM reports set"
                         zip -9m ADDM_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip addm*.*
                     }
                 }
                 if ($SendMail) {
                    if ($EmailAddress.Length -lt 6) {
-                        Write-Warning "Please enter a valid email address"
+                        Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Please enter a valid email address"
                         Read-Host -Prompt "Email to send the reports to" -OutVariable $EmailAddress
                     }
                     if ($Compress) {
@@ -1923,16 +1927,15 @@ function Use-OracleDB {
             HelpMessage="Flags the output to be HTML")]
         [Switch]$HTML,
         [Parameter(
+            HelpMessage="Flags the output to be plain text")]
+        [Switch]$PlainText,
+        [Parameter(
             HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
         [Switch]$Silent,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
     )
-    Begin{
-        if (-not $Silent) {Write-Logger -Underlined -Message "Welcome to the Use-OracleDB Function"}
-
-    }
     Process{
         if($HTML) {
             # Oracle HTML Header that formats HTML output from the Oracle Database
@@ -1988,18 +1991,17 @@ a {
 # Oracle HTML Tail to close the body and html tags on the HTML output from the Oracle Database
             $OracleHtmlTail = "</body></html>"
         }
-        if ($Silent) {
+        if (-not $PlainText -and -not $HTML) {
             $PipelineSettings=@"
-SET PAGESIZE 0
+SET PAGESIZE 50000
 SET FEEDBACK OFF
 SET VERIFY OFF
-SET LINESIZE 999
+SET LINESIZE 32767
 SET TRIM ON
 SET WRAP OFF
-SET HEADING OFF
 "@
         }
-        if (-not $Silent) {Write-Logger -Info -Message "Checking Oracle variables..."}
+        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Oracle variables..."
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
                 if ($DBUser.Length -eq 0) {
@@ -2008,39 +2010,39 @@ SET HEADING OFF
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             foreach ($DBName in $TargetDB) {
-                if (-not $Silent) {Write-Logger -Info -Message "Trying to reach database $DBName..."}
+                Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Trying to reach database $DBName..."
                 if (Ping-OracleDB -TargetDB $DBName) {
-                    if (-not $Silent) {Write-Logger -Notice -Message "Database $DBName is reachable"}
-                    if (-not $Silent) {Write-Logger -Info -Message "Checking Run-Mode..."}
+                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Database $DBName is reachable"
+                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                     if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
-                        if (-not $Silent) {Write-Logger -Info -Message "Running on Script Mode"}
-                        if (-not $Silent) {Write-Logger -Info -Message "Checking script for settings and exit string"}
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running on Script Mode"
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking script for settings and exit string"
                         $tmpScript = Get-Content -Path $SQLScript
                         $toExecute = "$env:TEMP/runthis_$PID.sql"
                         "-- AUTOGENERATED TEMPORARY FILE" | Out-File -Encoding ASCII $toExecute
                         if ($HTML) {
-                        Write-Logger -Notice -Message "Adding HTML output setting"
-                        if (-not $Silent) {"SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append}
+                            Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Adding HTML output setting"
+                            "SET MARKUP HTML ON" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         foreach ($line in $tmpScript) {
                             "$line" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         if(-not $tmpScript[-1].ToLower().Contains("exit")) {
-                        if (-not $Silent) {Write-Logger -Notice -Message "Adding EXIT command"}
-                        "exit;" | Out-File -Encoding ASCII $toExecute -Append
+                            Write-Progress -Activity "Oracle DB Query Run" -CurrentOperationWrite-Output "Adding EXIT command"
+                            "exit;" | Out-File -Encoding ASCII $toExecute -Append
                         }
-                        if (-not $Silent) {Write-Logger -Info -Message "Running script. Please wait..."}
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running script. Please wait..."
                         $Output = &"sqlplus" "-S" "$DBUser/$DBPass@$DBName" "@$toExecute"
                     } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
-                        if (-not $Silent) {Write-Logger -Info -Message "Running on Command Mode"}
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running on Command Mode"
                         if ($HTML) {
-                            if (-not $Silent) {Write-Logger -Notice -Message "Adding HTML setting to the command line"}
+                            Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Adding HTML setting to the command line"
                             $SQLQuery = @"
 SET MARKUP HTML ON
 $SQLQuery
 "@
                         }
-                        if (-not $Silent) {Write-Logger -Info -Message "Running query on the database..."}
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running query on the database..."
                         $Output = @"
 $PipelineSettings
 $SQLQuery
@@ -2048,7 +2050,7 @@ exit;
 "@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
 
                     } else {
-                        if (-not $Silent) {Write-Error "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"}
+                        Write-Error "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"
                         exit
                     }
                     if ($Dump) {
@@ -2059,8 +2061,42 @@ exit;
                         if ($DumpFile.Contains("htm")) {
                             $OracleHtmlTail | Out-File $DumpFile -Append
                         }
-                    } else {
+                    } elseif ($PlainText) {
                         $Output
+                    } else {
+                        $Counter = 1
+                        foreach ($Row in $Output -split "`n") {
+                            $TempList = ""
+                            foreach ($Item in $Row -split "`t") {
+                                if ($([String]$Item).Trim(" ").Trim("`t")) {
+                                    $TempList += $([String]$Item).Trim(" ").Trim("`t") + ","
+                                }
+                            }
+                            $Row = $TempList.TrimEnd(",")
+                            if ($Row -match "[a-z0-9]") {
+                                Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Working on resultset $Row"
+                                if ($Counter -eq 1) {
+                                   Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Column List"
+                                    foreach ($Column in $Row -split ",") {
+                                        $ColumnList += "$Column,"
+                                    }
+                                    $ColumnList = $ColumnList.TrimEnd(",")
+                                    $Counter++
+                                } else {
+                                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Output object"
+                                    $DBProps = @{ 'DBName' = [String]$DBName }
+                                    $ResObj = New-Object -TypeName PSObject -Property $DBProps
+                                    $ColCounter = 0
+                                    Write-Verbose "Row: $Row"
+                                    foreach ($Value in $Row -split ",") {
+                                        Write-Verbose "Counter: $Counter | Value: $Value"
+                                        $ResObj | Add-Member -MemberType NoteProperty -Name $($($ColumnList -split ',')[$ColCounter]) -Value $([String]$Value).Trim(" ").Trim("`t")
+                                        $ColCounter++
+                                    }
+                                }
+                                Write-Output $ResObj
+                            }
+                        }
                     }
                 } else {
                     Write-Error "Database $DBName not reachable"
@@ -2071,11 +2107,11 @@ exit;
         }
     }
     End{
-        if (-not $Silent) {Write-Logger -Info -Message "Finished the runs, cleaning up..."}
+        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Finished the runs, cleaning up..."
         if($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
             Remove-Item -Path $toExecute
         }
-        if (-not $Silent) {Write-Logger -Info -Message "Thanks for using this script."}
+        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Thanks for using this script."
     }
 }
 
