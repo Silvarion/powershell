@@ -2028,7 +2028,7 @@ SET WRAP OFF
                             "$line" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         if(-not $tmpScript[-1].ToLower().Contains("exit")) {
-                            Write-Progress -Activity "Oracle DB Query Run" -CurrentOperationWrite-Output "Adding EXIT command"
+                            Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Adding EXIT command"
                             "exit;" | Out-File -Encoding ASCII $toExecute -Append
                         }
                         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running script. Please wait..."
@@ -2077,10 +2077,12 @@ exit;
                                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Working on resultset $Row"
                                 if ($Counter -eq 1) {
                                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Column List"
+                                   $ColumnList=""
                                     foreach ($Column in $Row -split ",") {
                                         $ColumnList += "$Column,"
                                     }
                                     $ColumnList = $ColumnList.TrimEnd(",")
+                                    Write-Verbose "Headers: $ColumnList"
                                     $Counter++
                                 } else {
                                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Output object"
@@ -2089,12 +2091,18 @@ exit;
                                     $ColCounter = 0
                                     Write-Verbose "Row: $Row"
                                     foreach ($Value in $Row -split ",") {
-                                        Write-Verbose "Counter: $Counter | Value: $Value"
-                                        $ResObj | Add-Member -MemberType NoteProperty -Name $($($ColumnList -split ',')[$ColCounter]) -Value $([String]$Value).Trim(" ").Trim("`t")
+                                        if ($($ColumnList -split ',').Length -gt 1) {
+                                            $Header = $ColumnList
+                                        } else {
+                                            $Header =  $($ColumnList -split ',')[$ColCounter]
+                                        }
+                                        Write-Verbose "Counter: $ColCounter | PropertyName:  | Value: $Value"
+                                        $ResObj | Add-Member -MemberType NoteProperty -Name $Header -Value $([String]$Value).Trim(" ").Trim("`t")
                                         $ColCounter++
                                     }
+                                    Write-Output $ResObj
+                                    $Counter++
                                 }
-                                Write-Output $ResObj
                             }
                         }
                     }
