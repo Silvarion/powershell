@@ -2042,7 +2042,8 @@ SET MARKUP HTML ON
 $SQLQuery
 "@
                         }
-                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running query on the database..."
+                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running query on $DBName database..."
+                        if ($PlainText) { Write-Output "Running query on $DBName database..." }
                         $Output = @"
 $PipelineSettings
 $SQLQuery
@@ -2091,13 +2092,13 @@ exit;
                                     $ColCounter = 0
                                     Write-Verbose "Row: $Row"
                                     foreach ($Value in $Row -split ",") {
-                                        if ($($ColumnList -split ',').Length -gt 1) {
+                                        if ($ColumnList -notcontains ',') {
                                             $Header = $ColumnList
                                         } else {
-                                            $Header =  $($ColumnList -split ',')[$ColCounter]
+                                            $Header =  $($($ColumnList -split ',')[$ColCounter])
                                         }
-                                        Write-Verbose "Counter: $ColCounter | PropertyName:  | Value: $Value"
-                                        $ResObj | Add-Member -MemberType NoteProperty -Name $Header -Value $([String]$Value).Trim(" ").Trim("`t")
+                                        Write-Verbose "Counter: $ColCounter | PropertyName: $Header | Value: $Value"
+                                        $ResObj | Add-Member -MemberType NoteProperty -Name "$Header" -Value $([String]$Value).Trim(" ").Trim("`t")
                                         $ColCounter++
                                     }
                                     Write-Output $ResObj
