@@ -2085,7 +2085,7 @@ exit;
                             $TempList = ""
                             foreach ($Item in $Row -split "`t") {
                                 if ($([String]$Item).Trim(" ").Trim("`t")) {
-                                    $TempList += $([String]$Item).Trim(" ").Trim("`t") + ","
+                                    $TempList += $([String]$Item).Trim(" ").Trim("`t") + ','
                                 }
                             }
                             $Row = $TempList.TrimEnd(",")
@@ -2107,7 +2107,8 @@ exit;
                                     $ColCounter = 0
                                     Write-Verbose "Row: $Row"
                                     foreach ($Value in $Row -split ",") {
-                                        if ($ColumnList -notcontains ',') {
+                                        if ([String]$ColumnList -notlike "*,*") {
+                                            Write-Verbose "Single Header found"
                                             $Header = $ColumnList
                                         } else {
                                             $Header =  $($($ColumnList -split ',')[$ColCounter])
