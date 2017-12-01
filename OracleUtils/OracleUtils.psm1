@@ -235,6 +235,8 @@ function Get-OracleServices
             ValueFromPipeline=$true)]
         # It can check several databases at once
         [String[]]$TargetDB,
+        # Swtich to get output as database name and a comma-separated list
+        [Switch]$List,
         # Swtich to get output as table instead of lists
         [Switch]$Table,
         # Username if required
@@ -285,7 +287,20 @@ ORDER BY 1;
                     }
                     if (-not $ErrorInOutput) {
                         Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Building $DBName output" -PercentComplete 65
-                        if ($Table) {
+                        if ($List) {
+                            foreach ($Line in $($Output -split "`t")) {
+                                if ($Line.trim().Length -gt 0) {
+                                    $List += "$($Line.trim()),"
+                                }
+                                    $DBProps=[ordered]@{
+                                        'DBName'=$DBName
+                                        'Services'=$List
+                                        'ErrorMsg'=""
+                                    }
+                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
+                                Write-Output $DBObj
+                            }
+                        } elseif ($Table) {
                             foreach ($Line in $($Output -split "`t")) {
                                 if ($Line.trim().Length -gt 0) {
                                     $DBProps=[ordered]@{
