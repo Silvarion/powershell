@@ -1532,6 +1532,200 @@ EXIT
     End{}
 }
 
+
+<#
+.Synopsis
+    Returns Long running queries as per Schemas and SecondsLimit parameters
+.DESCRIPTION
+    
+.EXAMPLE
+    
+.ROLE
+    
+#>
+function Get-OracleLongRunQueries {
+    [CmdletBinding()]
+    [Alias("oralongsql")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String]$TargetDB,
+        # Target Schema
+        [String[]]$UserName,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Seconds to start considering long running queries
+        [int]$SecondsLimit = 0,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{
+        if ($UserName) {
+            if ($UserName.Count -eq 1) {
+                $UserFilter = "AND username = '$Schema'"
+            } elseif  ($UserName.Count -gt 1) {
+                $UserFilter = "AND username IN ("
+                foreach ($SchemaName in $UserName) {
+                    $UserFilter += "'$SchemaName',"
+                }
+                $UserFilter = $UserFilter.TrimEnd(',') + ")"
+            }
+        } else {
+                $UserFilter = "AND username LIKE '%'"
+        }
+    }
+    Process{
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            foreach ($DBName in $TargetDB) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
+SELECT ss.sql_id AS SqlId, ss.inst_id, ss.sid, ss.serial#, ss.module, ss.action
+    ,(sysdate-sql_exec_start)*24*60*60 Secs, to_char(sql_exec_start,'HH24:MI:SS') SQLStart, username, machine
+from gv`$session ss, gv`$sql sq
+where ss.sql_id=sq.sql_id
+and ss.inst_id=sq.inst_id
+and status='ACTIVE'
+$UserFilter
+and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
+;
+"@
+            }
+        }
+    }
+}
+
+<#
+.Synopsis
+    Returns SQL Id, Text and bind variables of a given SQL Id
+.DESCRIPTION
+    
+.EXAMPLE
+    
+.ROLE
+    
+#>
+function Get-OracleSQLText {
+    [CmdletBinding()]
+    [Alias("orasqltxt")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$True,
+            Position=0,
+            HelpMessage="Target Oracle Database name")]
+        [String]$TargetDB,
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$True,
+            Position=1,
+            HelpMessage="Target Oracle Database name")]
+        [String]$SqlId,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{
+    }
+    Process{
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
+SELECT sql_id, t.sql_text sql_text, b.name bind_name, b.value_string bind_value 
+FROM
+  v`$sql t 
+JOIN
+  v`$sql_bind_capture b  using (sql_id)
+WHERE
+  b.value_string is not null  
+AND
+  sql_id='$SqlId'
+;
+"@
+        }
+    }
+}
+
+<#
+.Synopsis
+    Returns SQL Id, Text and bind variables of a given SQL Id
+.DESCRIPTION
+    
+.EXAMPLE
+    
+.ROLE
+    
+#>
+function Get-OracleDBVersion {
+    [CmdletBinding()]
+    [Alias("oraversion")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$True,
+            Position=0,
+            HelpMessage="Target Oracle Database name")]
+        [String]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin{
+    }
+    Process{
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+            }
+            Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
+SELECT VERSION, comments
+FROM (
+	SELECT VERSION, comments 
+	FROM SYS.registry`$history
+	WHERE VERSION = (
+		SELECT MAX(VERSION)
+		FROM SYS.registry`$history
+		)
+	ORDER BY action_time DESC
+	)
+WHERE ROWNUM = 1;
+"@
+        }
+    }
+}
+
 <#
 .Synopsis
     
@@ -1951,6 +2145,9 @@ function Use-OracleDB {
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
     )
+    Begin {
+        if ($DumpFile) { $Dump = $true }
+    }
     Process{
         if($HTML) {
             # Oracle HTML Header that formats HTML output from the Oracle Database
@@ -2009,11 +2206,13 @@ a {
         if (-not $PlainText -and -not $HTML) {
             $PipelineSettings=@"
 SET PAGESIZE 50000
+SET LINESIZE 32767
 SET FEEDBACK OFF
 SET VERIFY OFF
-SET LINESIZE 32767
-SET TRIM ON
 SET WRAP OFF
+SET TRIM ON
+SET NULL '- Null -'
+SET COLSEP '|'
 "@
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Oracle variables..."
@@ -2064,64 +2263,100 @@ $PipelineSettings
 $SQLQuery
 exit;
 "@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
-
                     } else {
                         Write-Error "Please use either -SQLFile or -SQLQuery to provide what you need to run on the database"
                         exit
+                    } # ParameterSet BySQLFile or BySQLQuery
+                    foreach ($Line in $Output) {
+                        Write-Verbose "Analizing $Line"
+                        if ($Line.Contains("ORA-") -or $Line.Contains("SP2-") -or $Line.Contains("PLS-")) {
+                            Write-Verbose "Found Error in Output"
+                            $ErrorInOutput=$true
+                            if ($PlainText) {
+                                Write-Warning "$Line"
+                            } else {
+                                Write-Verbose "Query: $SQLQuery"
+                                $HeaderLine = $SQLQuery.Replace("`n"," ")
+                                $HeaderLine = $HeaderLine.Replace("(","").Replace(")","")
+                                $HeaderLine = $($HeaderLine -split "select")[1]
+                                $HeaderLine = $($HeaderLine -split "from")[0]
+                                $HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT","").Replace("COUNT","")
+                                Write-Verbose "HeaderLine: $HeaderLine"
+                                $DBProps = @{ 'DBName' = [String]$DBName }
+                                $ResObj = New-Object -TypeName PSObject -Property $DBProps
+                                $ColCounter = 0
+                                foreach ($Value in $HeaderLine -split ",") {
+                                    if ([String]$HeaderLine -notlike "*,*") {
+                                        Write-Verbose "Single Header found"
+                                        $Header = $HeaderLine
+                                    } else {
+                                        $Header =  $($($HeaderLine -split ',')[$ColCounter])
+                                    }
+                                    Write-Verbose "Adding prop! | PropertyName: $Header | Value: "
+                                    $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value ""
+                                    $ColCounter++
+                                }
+                                $ResObj | Add-Member -MemberType NoteProperty -Name 'ErrorMsg' -Value $Line
+                                Write-Output $DBObj
+                                Break
+                            }
+                        }
                     }
-                    if ($Dump) {
-                        if ($DumpFile.Contains("htm")) {
-                            $OracleHtmlHeader | Out-File $DumpFile
-                        }
-                        $Output | Out-File $DumpFile -Append
-                        if ($DumpFile.Contains("htm")) {
-                            $OracleHtmlTail | Out-File $DumpFile -Append
-                        }
-                    } elseif ($PlainText) {
-                        $Output
-                    } else {
-                        $Counter = 1
-                        foreach ($Row in $Output -split "`n") {
-                            $TempList = ""
-                            foreach ($Item in $Row -split "`t") {
-                                if ($([String]$Item).Trim(" ").Trim("`t")) {
-                                    $TempList += $([String]$Item).Trim(" ").Trim("`t") + ','
-                                }
+                    if (-not $ErrorInOutput) {
+                        if ($Dump) {
+                            if ($DumpFile.Contains("htm")) {
+                                $OracleHtmlHeader | Out-File $DumpFile
                             }
-                            $Row = $TempList.TrimEnd(",")
-                            if ($Row -match "[a-z0-9]") {
-                                Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Working on resultset $Row"
-                                if ($Counter -eq 1) {
-                                   Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Column List"
-                                   $ColumnList=""
-                                    foreach ($Column in $Row -split ",") {
-                                        $ColumnList += "$Column,"
+                            $Output | Out-File $DumpFile -Append
+                            if ($DumpFile.Contains("htm")) {
+                                $OracleHtmlTail | Out-File $DumpFile -Append
+                            }
+                        } elseif ($PlainText) {
+                            $Output
+                        } else {
+                            $Counter = 1
+                            foreach ($Row in $Output -split "`n") {
+                                $TempList = ""
+                                foreach ($Item in $Row -split '\|') {
+                                    if ($([String]$Item).Trim()) {
+                                        $TempList += $([String]$Item).Trim() + ','
                                     }
-                                    $ColumnList = $ColumnList.TrimEnd(",")
-                                    Write-Verbose "Headers: $ColumnList"
-                                    $Counter++
-                                } else {
-                                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Output object"
-                                    $DBProps = @{ 'DBName' = [String]$DBName }
-                                    $ResObj = New-Object -TypeName PSObject -Property $DBProps
-                                    $ColCounter = 0
-                                    Write-Verbose "Row: $Row"
-                                    foreach ($Value in $Row -split ",") {
-                                        if ([String]$ColumnList -notlike "*,*") {
-                                            Write-Verbose "Single Header found"
-                                            $Header = $ColumnList
-                                        } else {
-                                            $Header =  $($($ColumnList -split ',')[$ColCounter])
+                                }
+                                $Row = $TempList.Trim(",")
+                                if ($Row -match "[a-z0-9]") {
+                                    Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Working on resultset $Row"
+                                    if ($Counter -eq 1) {
+                                       Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Column List"
+                                       $ColumnList=""
+                                        foreach ($Column in $Row -split ",") {
+                                            $ColumnList += "$Column,"
                                         }
-                                        Write-Verbose "Counter: $ColCounter | PropertyName: $Header | Value: $Value"
-                                        $ResObj | Add-Member -MemberType NoteProperty -Name "$Header" -Value $([String]$Value).Trim(" ").Trim("`t")
-                                        $ColCounter++
+                                        $ColumnList = $ColumnList.TrimEnd(",")
+                                        Write-Verbose "Headers: $ColumnList"
+                                        $Counter++
+                                    } else {
+                                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Output object"
+                                        $DBProps = @{ 'DBName' = [String]$DBName }
+                                        $ResObj = New-Object -TypeName PSObject -Property $DBProps
+                                        $ColCounter = 0
+                                        Write-Verbose "Row: $Row"
+                                        foreach ($Value in $Row -split ",") {
+                                            if ([String]$ColumnList -notlike "*,*") {
+                                                Write-Verbose "Single Header found"
+                                                $Header = $ColumnList
+                                            } else {
+                                                $Header =  $($($ColumnList -split ',')[$ColCounter])
+                                            }
+                                            Write-Verbose "Counter: $ColCounter | PropertyName: $Header | Value: $Value"
+                                            $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value $([String]$Value).Trim()
+                                            $ColCounter++
+                                        }
+                                        Write-Output $ResObj
+                                        $Counter++
                                     }
-                                    Write-Output $ResObj
-                                    $Counter++
                                 }
                             }
-                        }
+                        } # Output type
                     }
                 } else {
                     Write-Error "Database $DBName not reachable"
