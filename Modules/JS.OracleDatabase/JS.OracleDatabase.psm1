@@ -6,7 +6,7 @@
 .EXAMPLE
    Import-Module \Path\to\OracleUtils.psm1
 .NOTES
-    This is my first Module for PowerShell, so any comments and suggestions are more than welcome. 
+    This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
 .FUNCTIONALITY
     This Module is mean to be used by Oracle DBAs who want to leverage the PS interface and SQL*Plus integration in order to work with Oracle Databases
 #>
@@ -132,7 +132,9 @@ function Get-OracleDBInfo {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Pinging database" -PercentComplete 10
@@ -153,13 +155,13 @@ SELECT listagg(host_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
 SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE NAME NOT LIKE 'SYS%';
 SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%';
 SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Analysing output" -PercentComplete 50
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
                             $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..." 
+                            $Line = "$($Line.Substring(0,25))..."
                             $DBProps=[ordered]@{
                                 [String]'DBName'=[String]$DBName
                                 [String]'DBID'=""
@@ -194,7 +196,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                         $DBObj=New-Object -TypeName PSObject -Property $DBProps
                         Write-Output $DBObj
                     }
-                } else { 
+                } else {
                     $DBProps = [ordered]@{
                         [String]'DBName'=[String]$DBName
                         [String]'DBID'=""
@@ -242,6 +244,8 @@ function Get-OracleServices
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -252,7 +256,9 @@ function Get-OracleServices
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
@@ -264,11 +270,11 @@ SET HEADING OFF
 SET FEEDBACK OFF
 COLUMN unique_name FORMAT a11
 COLUMN global_name FORMAT a11
-SELECT name 
-FROM v$active_services 
-WHERE name NOT LIKE ('SYS%') 
+SELECT name
+FROM v$active_services
+WHERE name NOT LIKE ('SYS%')
 ORDER BY 1;
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
@@ -322,7 +328,7 @@ ORDER BY 1;
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
                         'Services'=""
@@ -359,6 +365,8 @@ function Get-OracleSessions
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -384,12 +392,15 @@ function Get-OracleSessions
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
                     $Output = @"
 SET PAGESIZE 0
 SET LINESIZE 999
@@ -398,7 +409,7 @@ SET FEEDBACK OFF
 SELECT global_name||','||inst_id||','||sid||','||serial#||','||username||','||status||','||osuser||','||machine||','||program||','||module||','||sql_id
 FROM gv`$session, global_name
 WHERE username in ($UserList);
-"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+"@ | &"sqlplus" "-S" "$LoginString"
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
@@ -447,7 +458,7 @@ WHERE username in ($UserList);
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
                         'Instance'=""
@@ -521,7 +532,9 @@ function Get-OracleSize
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $FileSystemQuery = @"
 SELECT GLOBAL_NAME||','||substr(file_name,1,instr(file_name,'/',-1))||',used:'||SUM(user_bytes)||',alloc:'||SUM(BYTES)||',max:'||SUM(maxbytes)
@@ -533,40 +546,40 @@ FROM v`$recovery_file_dest, global_name;
 "@
             $TableSpaceQuery = @"
 Select global_name||','||ts.tablespace_name||',used:'||size_info.used||',alloc:'||size_info.alloc||',max:'||size_info.maxb ||',pctused:'||size_info.pct_used
-From 
-      ( 
-      select  a.tablespace_name, 
-             a.bytes_alloc alloc, 
-             nvl(b.bytes_free, 0) free, 
-             a.bytes_alloc - nvl(b.bytes_free, 0) used, 
-			1 - (nvl(b.bytes_free, 0) / A.bytes_alloc) pct_used, 
+From
+      (
+      select  a.tablespace_name,
+             a.bytes_alloc alloc,
+             nvl(b.bytes_free, 0) free,
+             a.bytes_alloc - nvl(b.bytes_free, 0) used,
+			1 - (nvl(b.bytes_free, 0) / A.bytes_alloc) pct_used,
              round(maxbytes) Maxb
-      from  ( select  f.tablespace_name, 
-                     sum(f.bytes) bytes_alloc, 
-                     sum(decode(f.autoextensible, 'YES',f.maxbytes,'NO', f.bytes)) maxbytes 
-              from dba_data_files f 
-              group by tablespace_name) a, 
-            ( select  f.tablespace_name, 
-                     sum(f.bytes)  bytes_free 
-              from dba_free_space f 
-              group by tablespace_name) b 
-      where a.tablespace_name = b.tablespace_name (+) 
-      union all 
-      select h.tablespace_name, 
-             sum(h.bytes_free + h.bytes_used) alloc, 
-             sum((h.bytes_free + h.bytes_used) - nvl(p.bytes_used, 0)) free, 
-             sum(nvl(p.bytes_used, 0)) used, 
+      from  ( select  f.tablespace_name,
+                     sum(f.bytes) bytes_alloc,
+                     sum(decode(f.autoextensible, 'YES',f.maxbytes,'NO', f.bytes)) maxbytes
+              from dba_data_files f
+              group by tablespace_name) a,
+            ( select  f.tablespace_name,
+                     sum(f.bytes)  bytes_free
+              from dba_free_space f
+              group by tablespace_name) b
+      where a.tablespace_name = b.tablespace_name (+)
+      union all
+      select h.tablespace_name,
+             sum(h.bytes_free + h.bytes_used) alloc,
+             sum((h.bytes_free + h.bytes_used) - nvl(p.bytes_used, 0)) free,
+             sum(nvl(p.bytes_used, 0)) used,
              1 - sum((h.bytes_free + h.bytes_used) - nvl(p.bytes_used, 0)) / sum(h.bytes_used + h.bytes_free) pct_used,
              sum(decode(f.autoextensible, 'YES', f.maxbytes, 'NO', f.bytes)) maxb
-      from   sys.v_`$TEMP_SPACE_HEADER h, sys.v_`$Temp_extent_pool p, dba_temp_files f 
-      where  p.file_id(+) = h.file_id 
-      and    p.tablespace_name(+) = h.tablespace_name 
-      and    f.file_id = h.file_id 
-      and    f.tablespace_name = h.tablespace_name 
-      group by h.tablespace_name 
-      ) size_info, 
+      from   sys.v_`$TEMP_SPACE_HEADER h, sys.v_`$Temp_extent_pool p, dba_temp_files f
+      where  p.file_id(+) = h.file_id
+      and    p.tablespace_name(+) = h.tablespace_name
+      and    f.file_id = h.file_id
+      and    f.tablespace_name = h.tablespace_name
+      group by h.tablespace_name
+      ) size_info,
       sys.dba_tablespaces ts, sys.dba_tablespace_groups tsg, global_name
-WHERE ts.tablespace_name = size_info.tablespace_name 
+WHERE ts.tablespace_name = size_info.tablespace_name
 and   ts.tablespace_name = tsg.tablespace_name (+);
 "@
             $TableQuery = @"
@@ -617,8 +630,8 @@ FROM (
         ON (af.file_number = fh.file_number
         AND dg.group_number = fh.group_number)
     WHERE dg.NAME IN (
-        SELECT TRIM(REPLACE(value,'+',' ')) 
-        FROM v$`spparameter 
+        SELECT TRIM(REPLACE(value,'+',' '))
+        FROM v$`spparameter
         WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
     )
 ), global_name
@@ -643,8 +656,8 @@ FROM (
         ON (af.file_number = fh.file_number
         AND dg.group_number = fh.group_number)
     WHERE dg.NAME IN (
-        SELECT TRIM(REPLACE(value,'+',' ')) 
-        FROM v$`spparameter 
+        SELECT TRIM(REPLACE(value,'+',' '))
+        FROM v$`spparameter
         WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
     )
 ), global_name
@@ -668,7 +681,7 @@ ORDER BY DB_NAME;
                             } else {
                                 $Query = $FileSystemQuery
                             }
-                        }                            
+                        }
                         "Tablespace" {
                             $Query = $TableSpaceQuery
                         }
@@ -682,7 +695,7 @@ SET LINESIZE 999
 SET HEADING OFF
 SET FEEDBACK OFF
 $Query
-"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
@@ -747,7 +760,7 @@ $Query
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
                         'Services'=""
@@ -795,7 +808,9 @@ function Get-OracleVaultStatus
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $TargetDB) {
@@ -808,9 +823,9 @@ SELECT comp_name as name||':'||status||':'||modified
 FROM dba_registry
 WHERE comp_name LIKE '%Label%'
 OR comp_name LIKE '%Vault%';
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     if ($Output.Contains("ORA-")) {
-                        $Output = "$($Output.Substring(0,75))..." 
+                        $Output = "$($Output.Substring(0,75))..."
                     }
                     foreach ($Line in [String[]]$($Output -split "`n")) {
                         $DBProps=[ordered]@{
@@ -824,7 +839,7 @@ OR comp_name LIKE '%Vault%';
                         Write-Output $DBObj
                         $Counter++
                     }
-                } else { 
+                } else {
                     $DBProps=[ordered]@{
                         'DBName'=$DBName
                         'Component'=""
@@ -876,7 +891,9 @@ function Get-OracleNames {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 if (($DBName)) {
@@ -896,12 +913,12 @@ SELECT db_unique_name FROM v`$database;
 SELECT instance_name FROM v`$instance;
 SELECT host_name FROM v`$instance;
 exit
-"@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                         $ErrorInOutput=$false
                         foreach ($Line in $Output) {
                             if ($Line.Contains("ORA-")) {
                                 $ErrorInOutput=$true
-                                $Line = "$($Line.Substring(0,25))..." 
+                                $Line = "$($Line.Substring(0,25))..."
                                 $DBProps=[ordered]@{
                                     [String]'DBName'=$DBName
                                     [String]'GlobalName'=""
@@ -936,7 +953,7 @@ exit
                             'HostName'=[String]$ErrorMsg
                         }
                         $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                        Write-Output $DBObj                
+                        Write-Output $DBObj
                     }
                 }
             }
@@ -986,7 +1003,9 @@ function Get-OracleInstances {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ( $DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $DBName) {
@@ -997,12 +1016,12 @@ SET HEADING OFF
 SET PAGESIZE 0
 SELECT instance_name from gv$instance ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
                             $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..." 
+                            $Line = "$($Line.Substring(0,25))..."
                             $DBProps=[ordered]@{
                                 [String]'DBName'=$DBName
                                 [String]'InstanceName'=""
@@ -1036,7 +1055,7 @@ exit
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps = [ordered]@{
                         [String]'DBName'=$DBName
                         [String]'InstanceName'=""
@@ -1092,7 +1111,9 @@ function Get-OracleHosts {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB -TargetDB $DBName) {
@@ -1103,12 +1124,12 @@ SET HEADING OFF
 SET PAGESIZE 0
 SELECT host_name from gv$instance ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
                             $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..." 
+                            $Line = "$($Line.Substring(0,25))..."
                             $DBProps=[ordered]@{
                                 [String]'DBName'=$DBName
                                 [String]'Hosts'=""
@@ -1142,7 +1163,7 @@ exit
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps = [ordered]@{
                         [String]'DBName'=$DBName
                         [String]'Hosts'=""
@@ -1198,7 +1219,9 @@ function Get-OracleUsers {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Pinging Database" -PercentComplete 10
@@ -1212,11 +1235,11 @@ SET PAGESIZE 0
 SET LINESIZE 999
 SET FEEDBACK OFF
 SELECT username||':'||account_status
-FROM dba_users 
-WHERE username NOT IN ('SYS','SYSTEM','SYSAUX','DBSNMP') 
+FROM dba_users
+WHERE username NOT IN ('SYS','SYSTEM','SYSAUX','DBSNMP')
 ORDER BY 1;
 exit
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Checking Output" -PercentComplete 50 -Id 100
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
@@ -1261,7 +1284,7 @@ exit
                             Write-Output $DBObj
                         }
                     }
-                } else { 
+                } else {
                     $DBProps = [ordered]@{
                         [String]'DBName'=$DBName
                         [String]'Users'=""
@@ -1318,7 +1341,9 @@ function Get-OracleDBID {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 if (Ping-OracleDB($DBName)) {
@@ -1329,12 +1354,12 @@ SET HEADING OFF
 SET PAGESIZE 0
 SELECT dbid FROM v$database;
 exit
-'@ | &"sqlplus" "-S" "$DBUser/$DBPass@$DBName"
+'@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${DBName}"
                     $ErrorInOutput=$false
                     foreach ($Line in $Output) {
                         if ($Line.Contains("ORA-")) {
                             $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..." 
+                            $Line = "$($Line.Substring(0,25))..."
                             $DBProps=[ordered]@{
                                 [String]'DBName'=$DBName
                                 [String]'DBID'=""
@@ -1354,7 +1379,7 @@ exit
                         $DBObj=New-Object -TypeName PSObject -Property $DBProps
                         Write-Output $DBObj
                     }
-                } else { 
+                } else {
                     $DBProps = [ordered]@{
                         [String]'DBName'=$DBName
                         [String]'DBID'=""
@@ -1373,13 +1398,13 @@ exit
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
@@ -1417,7 +1442,9 @@ function Get-OracleSnapshot {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
 			Write-Debug "Database pinged successfully"
             if ($Mark -eq "start") {
@@ -1432,7 +1459,7 @@ FROM dba_hist_snapshot
 WHERE begin_interval_time <= TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS')
 AND end_interval_time > TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS');
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${TargetDB}"
             } else {
                 $StrTimeStamp = $TimeStamp.ToString("yyyy-MM-dd HH:mm:ss")
                 Write-Debug $TimeStamp
@@ -1445,7 +1472,7 @@ FROM dba_hist_snapshot
 WHERE end_interval_time >= TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS')
 AND begin_interval_time < TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS');
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${TargetDB}"
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1456,13 +1483,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
@@ -1501,7 +1528,9 @@ function Get-OracleSnapshotTime {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             # Using here-string to pipe the SQL query to SQL*Plus
             if ($Mark -eq "start") {
@@ -1509,21 +1538,21 @@ function Get-OracleSnapshotTime {
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(begin_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot 
+FROM dba_hist_snapshot
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${TargetDB}"
             } else {
                 @"
 SET HEADING OFF
 SET PAGESIZE 0
 SELECT TO_CHAR(MAX(end_interval_time),'YYYY-MM-DD HH24:MI:SS')
-FROM dba_hist_snapshot 
+FROM dba_hist_snapshot
 WHERE snap_id = $Snapshot
 AND dbid = $DBID;
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "${DBUser}/${DBPass}@${TargetDB}"
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1537,11 +1566,11 @@ EXIT
 .Synopsis
     Returns Long running queries as per Schemas and SecondsLimit parameters
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleLongRunQueries {
     [CmdletBinding()]
@@ -1586,7 +1615,9 @@ function Get-OracleLongRunQueries {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
@@ -1599,7 +1630,7 @@ and status='ACTIVE'
 $UserFilter
 and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
 ;
-"@
+"@ -DBUser $DBUser -DBPass $DBPass
             }
         }
     }
@@ -1609,11 +1640,11 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
 .Synopsis
     Returns SQL Id, Text and bind variables of a given SQL Id
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleSQLText {
     [CmdletBinding()]
@@ -1635,6 +1666,8 @@ function Get-OracleSQLText {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1653,17 +1686,17 @@ function Get-OracleSQLText {
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
-SELECT sql_id, t.sql_text sql_text, b.name bind_name, b.value_string bind_value 
+SELECT sql_id, t.sql_text sql_text, b.name bind_name, b.value_string bind_value
 FROM
-  v`$sql t 
+  v`$sql t
 JOIN
   v`$sql_bind_capture b  using (sql_id)
 WHERE
-  b.value_string is not null  
+  b.value_string is not null
 AND
   sql_id='$SqlId'
 ;
-"@
+"@ -DBuser "$DBUser" -DBPass $DBPass
         }
     }
 }
@@ -1672,11 +1705,11 @@ AND
 .Synopsis
     Returns SQL Id, Text and bind variables of a given SQL Id
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleDBVersion {
     [CmdletBinding()]
@@ -1692,6 +1725,8 @@ function Get-OracleDBVersion {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1707,12 +1742,14 @@ function Get-OracleDBVersion {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
 SELECT VERSION, comments
 FROM (
-	SELECT VERSION, comments 
+	SELECT VERSION, comments
 	FROM SYS.registry`$history
 	WHERE VERSION = (
 		SELECT MAX(VERSION)
@@ -1721,20 +1758,20 @@ FROM (
 	ORDER BY action_time DESC
 	)
 WHERE ROWNUM = 1;
-"@
+"@ -DBUSer "$DBUser" -DBPass "$DBPass"
         }
     }
 }
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .ROLE
-    
+
 #>
 function Get-OracleADDMInstanceReport {
     [CmdletBinding()]
@@ -1747,6 +1784,8 @@ function Get-OracleADDMInstanceReport {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1777,7 +1816,9 @@ function Get-OracleADDMInstanceReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $InstNumber = $Instance.Substring($Instance.Length-1)
             Write-Verbose "Instance Number: $InstNumber"
@@ -1795,8 +1836,8 @@ define  report_name  = 'addm_${Instance}_${StartSnapshot}_${EndSnapshot}_report.
 @@?/rdbms/admin/addmrpti.sql
 exit;
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
-            Write-Debug "$Output" 
+"@ | &"sqlplus" "-S" "/@$TargetDB" -DBUser "$DBUser" -DBPass "$DBPass"
+            Write-Debug "$Output"
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -1806,13 +1847,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .FUNCTIONALITY
-    
+
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
@@ -1825,6 +1866,8 @@ function Get-OracleAWRReport {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1851,7 +1894,9 @@ function Get-OracleAWRReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
 			Write-Output "Launching AWR Global Report"
             # Using here-string to pipe the SQL query to SQL*Plus
@@ -1866,7 +1911,7 @@ define  report_name  = 'awr_${TargetDB}_${StartSnapshot}_${EndSnapshot}_global_r
 @@?/rdbms/admin/awrgrpt.sql
 exit;
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "/@$TargetDB" -DBUser "$DBUser" -DBPass "$DBPass"
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -1876,13 +1921,13 @@ EXIT
 
 <#
 .Synopsis
-    
+
 .DESCRIPTION
-    
+
 .EXAMPLE
-    
+
 .FUNCTIONALITY
-    
+
 #>
 function Get-OracleAWRInstanceReport {
     [CmdletBinding()]
@@ -1895,6 +1940,8 @@ function Get-OracleAWRInstanceReport {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1925,7 +1972,9 @@ function Get-OracleAWRInstanceReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $InstNumber = $Instance.Substring($Instance.Length-1)
             # Using here-string to pipe the SQL query to SQL*Plus
@@ -1942,7 +1991,7 @@ define  report_name  = 'awr_${Instance}_${StartSnapshot}_${EndSnapshot}_report.h
 @@?/rdbms/admin/awrrpti.sql
 exit;
 EXIT
-"@ | &"sqlplus" "-S" "/@$TargetDB"
+"@ | &"sqlplus" "-S" "/@$TargetDB" -DBUser "$DBUser" -DBPass "$DBPass"
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -1974,6 +2023,8 @@ function Get-OraclePerfReports {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2011,7 +2062,9 @@ function Get-OraclePerfReports {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Pinging $TargetDB} Datbase"
             if (Ping-OracleDB -TargetDB $TargetDB) {
@@ -2108,6 +2161,8 @@ function Use-OracleDB {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2170,30 +2225,30 @@ table,tr,td {
 }
 th {
     font:bold 10pt Arial,Helvetica,sans-serif;
-    color:blue; 
+    color:blue;
     background:#cccc99;
     padding:0px 0px 0px 0px;
 }
 h1 {
     font:16pt Arial,Helvetica,Geneva,sans-serif;
-    color:#336699; 
-    background-color:White; 
-    border-bottom:1px solid #cccc99; 
+    color:#336699;
+    background-color:White;
+    border-bottom:1px solid #cccc99;
     margin-top:0pt; margin-bottom:0pt;
     padding:0px 0px 0px 0px;
-} 
+}
 h2 {
-    font:bold 10pt Arial,Helvetica,Geneva,sans-serif; 
+    font:bold 10pt Arial,Helvetica,Geneva,sans-serif;
     color:#336699;
-    background-color:White; 
-    margin-top:4pt; 
+    background-color:White;
+    margin-top:4pt;
     margin-bottom:0pt;
-} 
+}
 a {
     font:9pt Arial,Helvetica,sans-serif;
-    color:#663300; 
-    background:#ffffff; 
-    margin-top:0pt; 
+    color:#663300;
+    background:#ffffff;
+    margin-top:0pt;
     margin-bottom:0pt;
     vertical-align:top;}
 </style>
@@ -2221,7 +2276,9 @@ SET COLSEP '|'
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Trying to reach database $DBName..."
@@ -2229,6 +2286,7 @@ SET COLSEP '|'
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Database $DBName is reachable"
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                     if ($PSCmdlet.ParameterSetName -eq 'BySQLFile') {
+                        $PlainText=$true
                         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running on Script Mode"
                         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking script for settings and exit string"
                         $tmpScript = Get-Content -Path $SQLScript
