@@ -12,7 +12,7 @@
 RootModule = 'JS.OracleDatabase.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.2.1.2'
+ModuleVersion = '0.2.1.3'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -69,7 +69,7 @@ Description = 'This module is intended to help Oracle DBAs who work from windows
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @('Get-OracleADDMInstanceReport','Get-OracleAWRInstanceReport','Get-OracleAWRReport','Get-OracleDBID','Get-OracleDBInfo','Get-OracleHosts','Get-OracleInstances','Get-OracleDBVersion','Get-OracleLongRunQueries','Get-OracleNames','Get-OraclePerfReports','Get-OracleServices','Get-OracleSessions','Get-OracleSize','Get-OracleSnapshot','Get-OracleSnapshotTime','Get-OracleSQLText','Get-OracleUsers','Get-OracleVaultStatus','Ping-OracleDB','Test-OracleEnv','Use-OracleDB')
+FunctionsToExport = @('Get-OracleADDMInstanceReport','Get-OracleAWRInstanceReport','Get-OracleAWRReport','Get-OracleDBID','Get-OracleDBInfo','Get-OracleHosts','Get-OracleInstances','Get-OracleDBVersion','Get-OracleLongOperations','Get-OracleLongRunQueries','Get-OracleNames','Get-OraclePerfReports','Get-OracleServices','Get-OracleSessions','Get-OracleSize','Get-OracleSnapshot','Get-OracleSnapshotTime','Get-OracleSQLText','Get-OracleUsers','Get-OracleVaultStatus','Ping-OracleDB','Test-OracleEnv','Use-OracleDB')
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
