@@ -289,7 +289,6 @@ SET PAGESIZE 0
 SET HEADING OFF
 SET FEEDBACK OFF
 COLUMN unique_name FORMAT a11
-COLUMN global_name FORMAT a11
 SELECT name
 FROM v$active_services
 WHERE name NOT LIKE ('SYS%')
@@ -416,94 +415,42 @@ function Get-OracleSessions
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
+            if ($DBUser) {
+                if (-not $DBPass) {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
+                $LoginString = "${DBUser}/${DBPass}@${DBName}"
+            } else {
+                $LoginString = "/@$DBName"
+            }
+            $Query = @"
+SELECT sid||':'||serial#||'@'||inst_id AS "Session"
+    , service_name AS "ServiceNames"
+    , username AS "UserName"
+    , status AS "Status"
+    , osuser AS "OSUser"
+    , machine AS "Machine"
+    , program AS "Program"
+    , module AS "Module"
+    , sql_id AS "RunningSqlId"
+FROM gv`$session
+"@
+            if ($Userlist) {
+                $Query += "WHERE username in ($UserList);"
+            } else {
+                $Query +=";"
+            }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                     if ($DBUser) {
-                        if (-not $DBPass) {
-                            $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                            $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                        }
-                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
                     } else {
-                        $LoginString = "/@$DBName"
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    $Output = @"
-SET PAGESIZE 0
-SET LINESIZE 999
-SET HEADING OFF
-SET FEEDBACK OFF
-SELECT global_name||','||inst_id||','||sid||','||serial#||','||username||','||status||','||osuser||','||machine||','||program||','||module||','||sql_id
-FROM gv`$session, global_name
-WHERE username in ($UserList);
-"@ | &"sqlplus" "-S" "$LoginString"
-                    Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if (($Line.Contains("ORA-")) -or
-                            ($Line.Contains("TNS-"))) {
-                            $ErrorInOutput=$true
-                            $DBProps=[ordered]@{
-                                'DBName'="$DBName"
-                                'Instance'=""
-                                'SID'=""
-                                'Serial'=""
-                                'Username'=""
-                                'Status'=""
-                                'OSUser'=""
-                                'Machine'=""
-                                'Program'=""
-                                'Module'=""
-                                'SQLId'=""
-                                'ErrorMsg'=[String]$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
-                    }
-                    if (-not $ErrorInOutput) {
-                        Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Building $DBName output" -PercentComplete 65
-                        foreach ($Line in $($Output -split "`t")) {
-                            if ($Line.trim().Length -gt 0) {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=[String]$($Line -split ',')[0]
-                                        'Instance'=$($Line -split ',')[1]
-                                        'SID'=[int]$($Line -split ',')[2]
-                                        'Serial'=[int]$($Line -split ',')[3]
-                                        'Username'=[String]$($Line -split ',')[4]
-                                        'Status'=[String]$($Line -split ',')[5]
-                                        'OSUser'=[String]$($Line -split ',')[6]
-                                        'Machine'=[String]$($Line -split ',')[7]
-                                        'Program'=[String]$($Line -split ',')[8]
-                                        'Module'=[String]$($Line -split ',')[9]
-                                        'SQLId'=[String]$($Line -split ',')[10]
-                                        'ErrorMsg'=""
-                                    }
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                        }
-                    }
-                } else {
-                    $DBProps=[ordered]@{
-                        'DBName'=$DBName
-                        'Instance'=""
-                        'SID'=""
-                        'Serial'=""
-                        'Username'=""
-                        'Status'=""
-                        'OSUser'=""
-                        'Machine'=""
-                        'Program'=""
-                        'Module'=""
-                        'SQLId'=""
-                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                    Write-Output $DBObj
                 }
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -513,11 +460,11 @@ WHERE username in ($UserList);
 
 <#
 .Synopsis
-   Returns the Active Services in an Oracle DB
+   Returns the Size an Oracle DB or its components, based on the paramaters passed
 .DESCRIPTION
    This function returns the Active Services in an Oracle DB
 .EXAMPLE
-    Get-OracleServices -TargetDB myorcl
+    Get-OracleSize -TargetDB myorcl -SizeType Full -Unit GB
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 #>
@@ -533,6 +480,8 @@ function Get-OracleSize
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -540,12 +489,14 @@ function Get-OracleSize
         [Parameter(Mandatory = $true)]
         [ValidateSet("Full","Storage","Tablespace","Table")]
         [String]$SizeType,
-        [ValidateSet("KB","MB","GB","TB","PB","EB","ZB")]
-        [String]$Unit
+        [ValidateSet("B","KB","MB","GB","TB","PB","EB","ZB")]
+        [String]$Unit = "B"
     )
     Begin {
+        Write-Verbose "Setting Unit value"
         $UnitValue = 1
         Switch ($Unit) {
+            "B" {$UnitValue = 1 }
             "KB" { $UnitValue = 1024 }
             "MB" { $UnitValue = [Math]::Pow(1024,2) }
             "GB" { $UnitValue = [Math]::Pow(1024,3) }
@@ -554,6 +505,7 @@ function Get-OracleSize
             "EB" { $UnitValue = [Math]::Pow(1024,6) }
             "ZB" { $UnitValue = [Math]::Pow(1024,7) }
         }
+        Write-Verbose "Unit Value: $UnitValue"
     }
     Process {
         if (Test-OracleEnv) {
@@ -571,16 +523,23 @@ function Get-OracleSize
                 $LoginString = "/@$DBName"
             }
             $FileSystemQuery = @"
-SELECT GLOBAL_NAME||','||substr(file_name,1,instr(file_name,'/',-1))||',used:'||SUM(user_bytes)||',alloc:'||SUM(BYTES)||',max:'||SUM(maxbytes)
+SELECT substr(file_name,1,instr(file_name,'/',-1)) AS "FileName"
+    , ROUND(SUM(user_bytes)/$UnitValue,2) AS "Used$Unit"
+    , ROUND(SUM(BYTES)/$UnitValue,2) AS "Allocated$Unit"
+    , ROUND(SUM(maxbytes)/$UnitValue,2) AS "Max$Unit"
 FROM dba_data_files, GLOBAL_NAME
-GROUP BY global_name, substr(file_name,1,instr(file_name,'/',-1))
+GROUP BY substr(file_name,1,instr(file_name,'/',-1))
 UNION ALL
-SELECT global_name||','||NAME||',used:'||space_used||',alloc:'||space_limit||',max:'||space_limit
-FROM v`$recovery_file_dest, global_name;
+SELECT NAME AS "FileName", space_used/$UnitValue AS "Used$Unit", space_limit AS "Allocated$Unit", space_limit AS "Max$Unit"
+FROM v`$recovery_file_dest;
 "@
             $TableSpaceQuery = @"
-Select global_name||','||ts.tablespace_name||',used:'||size_info.used||',alloc:'||size_info.alloc||',max:'||size_info.maxb ||',pctused:'||size_info.pct_used
-From
+SELECT ts.tablespace_name AS "Tablespace"
+    , ROUND(size_info.used/$UnitValue,2) AS "Used_$Unit"
+    , ROUND(size_info.alloc/$UnitValue,2) AS "Allocated_$Unit"
+    , ROUND(size_info.maxb/$UnitValue,2) AS "Max_$Unit"
+    , ROUND(size_info.pct_used,2) AS "Percent_Used"
+FROM
       (
       select  a.tablespace_name,
              a.bytes_alloc alloc,
@@ -617,7 +576,9 @@ WHERE ts.tablespace_name = size_info.tablespace_name
 and   ts.tablespace_name = tsg.tablespace_name (+);
 "@
             $TableQuery = @"
-SELECT global_name||','||x.owner||'.'||x.table_name||',used:'||SUM(bytes)||',num_rows:'||nvl(z.num_rows, 0)
+SELECT x.owner||'.'||x.table_name AS "Table"
+    , ROUND(SUM(bytes)/$UnitValue,2) AS "Size_$Unit"
+    , nvl(z.num_rows, 0) AS "Num_Rows"
 	FROM ( SELECT b.segment_name table_name, b.owner, b.bytes
 		FROM dba_segments b
 		WHERE b.segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
@@ -643,13 +604,16 @@ SELECT global_name||','||x.owner||'.'||x.table_name||',used:'||SUM(bytes)||',num
 	WHERE z.table_name = x.table_name
 		AND z.owner = x.owner
 	GROUP BY
-		global_name, trunc(SYSDATE), x.table_name, x.owner, nvl(z.num_rows, 0)
+		trunc(SYSDATE), x.table_name, x.owner, nvl(z.num_rows, 0)
 	HAVING SUM(BYTES) >= 1;
 "@
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 $ASMQuery = @"
-SELECT global_name||','||disk_group||',used:'||SUM(used)||',alloc:'||SUM(alloc)||',max:'||MIN(maxb)
+SELECT disk_group AS "DiskGroup" 
+    , ROUND(SUM(used)/$UnitValue,2) AS "Used$Unit"
+    , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated$Unit"
+    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max$Unit"
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -668,14 +632,17 @@ FROM (
         FROM v$`spparameter
         WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
     )
-), global_name
+)
 WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
 AND  UPPER(db_name) = UPPER('$DBName')
-GROUP BY global_name,db_name, disk_group
+GROUP BY db_name, disk_group
 ORDER BY DB_NAME;
 "@
                 $FullASMQuery = @"
-SELECT global_name||','||disk_group||',used:'||SUM(used)||',alloc:'||SUM(alloc)||',max:'||MIN(maxb)
+SELECT disk_group AS "DiskGroup"
+    , ROUND(SUM(used)/$UnitValue,2) AS "Used_$Unit"
+    , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated_$Unit"
+    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit" 
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -694,9 +661,9 @@ FROM (
         FROM v$`spparameter
         WHERE UPPER(name) IN ('DB_CREATE_FILE_DEST','DB_RECOVERY_FILE_DEST')
     )
-), global_name
+)
 WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
-GROUP BY global_name,db_name, disk_group
+GROUP BY db_name, disk_group
 ORDER BY DB_NAME;
 "@
                 if (Ping-OracleDB -TargetDB $DBName) {
@@ -723,88 +690,15 @@ ORDER BY DB_NAME;
                             $Query = $TableQuery
                         }
                     }
-                    $Output = @"
-SET PAGESIZE 0
-SET LINESIZE 999
-SET HEADING OFF
-SET FEEDBACK OFF
-$Query
-"@ | &"sqlplus" "-S" "$LoginString"
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if (($Line.Contains("ORA-")) -or
-                            ($Line.Contains("TNS-"))) {
-                            $ErrorInOutput=$true
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=[String]$DBName
-                                [String]'Size'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Building $DBName output" -PercentComplete 65
-                        foreach ($Line in $($Output -split "`t")) {
-                            if ($Line.trim().Length -gt 0) {
-                                if ($SizeType -eq "Full") {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$($Line -split ',')[0]
-                                        'Path'=$($Line -split ',')[1]
-                                        'Used'="{0:N2}" -f [double]$($($($Line -split ',')[2] -split ':')[1]/$UnitValue)
-                                        'Allocated'="{0:N2}" -f [double]$($($($Line -split ',')[3] -split ':')[1]/$UnitValue)
-                                        'Max'="{0:N2}" -f [double]$($($($Line -split ',')[4] -split ':')[1]/$UnitValue)
-                                        'ErrorMsg'=""
-                                    }
-                                } elseif ($SizeType -eq "Storage") {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$($Line -split ',')[0]
-                                        'Path'=$($Line -split ',')[1]
-                                        'Used'="{0:N2}" -f [double]$($($($Line -split ',')[2] -split ':')[1]/$UnitValue)
-                                        'Max'="{0:N2}" -f [double]$($($($Line -split ',')[3] -split ':')[1]/$UnitValue)
-                                        'ErrorMsg'=""
-                                    }
-                                } elseif ($SizeType -eq "Tablespace") {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$($Line -split ',')[0]
-                                        'Tablespace'=$($Line -split ',')[1]
-                                        'Used'="{0:N2}" -f [double]$($($($Line -split ',')[2] -split ':')[1]/$UnitValue)
-                                        'Allocated'="{0:N2}" -f [double]$($($($Line -split ',')[3] -split ':')[1]/$UnitValue)
-                                        'Max'="{0:N2}" -f [double]$($($($Line -split ',')[4] -split ':')[1]/$UnitValue)
-                                        'PctUsed'="{0:P2}" -f [double]$($($Line -split ',')[5] -split ':')[1]
-                                        'ErrorMsg'=""
-                                    }
-                                } elseif ($SizeType -eq "Table") {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$($Line -split ',')[0]
-                                        'Table'=$($Line -split ',')[1]
-                                        'Used'="{0:N2}" -f [double]$($($($Line -split ',')[2] -split ':')[1]/$UnitValue)
-                                        'Allocated'="{0:N2}" -f [double]$($($($Line -split ',')[3] -split ':')[1]/$UnitValue)
-                                        'Max'="{0:N2}" -f [double]$($($($Line -split ',')[4] -split ':')[1]/$UnitValue)
-                                        'ErrorMsg'=""
-                                    }
-                                }
-
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-
-                            Write-Output $DBObj
-                        }
-                    }
-                } else {
-                    $DBProps=[ordered]@{
-                        'DBName'=$DBName
-                        'Services'=""
-                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                    Write-Output $DBObj
                 }
             }
-            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
+            Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -894,7 +788,7 @@ OR comp_name LIKE '%Vault%';
 
 <#
 .Synopsis
-    Query an Oracle database to get the global name
+    Query an Oracle database to get global name, host name, db unique name and 
 .DESCRIPTION
     This function returns the global name of the database
 .EXAMPLE
