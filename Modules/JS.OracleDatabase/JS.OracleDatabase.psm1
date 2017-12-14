@@ -60,6 +60,7 @@ function Test-OracleEnv {
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
 #>
+
 function Ping-OracleDB
 {
     [CmdletBinding()]
@@ -610,7 +611,7 @@ SELECT x.owner||'.'||x.table_name AS "Table"
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 $ASMQuery = @"
-SELECT disk_group AS "DiskGroup"
+SELECT disk_group AS "DiskGroup" 
     , ROUND(SUM(used)/$UnitValue,2) AS "Used$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated$Unit"
     , ROUND(MIN(maxb)/$UnitValue,2) AS "Max$Unit"
@@ -642,7 +643,7 @@ ORDER BY DB_NAME;
 SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used_$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated_$Unit"
-    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit"
+    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit" 
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -788,7 +789,7 @@ OR comp_name LIKE '%Vault%';
 
 <#
 .Synopsis
-    Query an Oracle database to get global name, host name, db unique name and
+    Query an Oracle database to get global name, host name, db unique name and 
 .DESCRIPTION
     This function returns the global name of the database
 .EXAMPLE
@@ -1600,7 +1601,7 @@ AND l.serial# = s.serial#;
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
-
+               
             }
         }
     }
@@ -1680,7 +1681,7 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
                 } else {
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
                 }
-
+               
             }
         }
     }
@@ -2509,6 +2510,107 @@ exit;
             Remove-Item -Path $toExecute
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Thanks for using this script."
+    }
+}
+
+function Remove-OracleSchema {
+    [CmdletBinding(
+        SupportsShouldProcess=$true)]
+    [Alias("oradrop")]
+    Param (
+    [Parameter(Mandatory = $true)]
+    [String[]] $TargetDB,
+    [Parameter(Mandatory=$true)]
+    [String]$SchemaName,
+    [Switch]$Tablespace
+    )
+
+    foreach ($DBName in $TargetDB) {
+        Write-Output "[$(Get-Date)] Processing $DBName"
+        Write-Output "[$(Get-Date)] Checking current objects"
+        Use-OracleDB -TargetDB $DBName -SQLQuery @"
+    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount" 
+    FROM dba_objects 
+    WHERE owner = UPPER('$SchemaName')
+    GROUP BY object_type;
+"@
+
+        $SchemaObjects = Use-OracleDB -TargetDB $DBName -SQLQuery @"
+    SELECT object_type AS "ObjectType", owner||'.'||object_name AS "ObjectName"
+    FROM dba_objects
+    WHERE owner = UPPER('$SchemaName');
+"@
+
+        $DropperQuery=""
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PACKAGE' }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name;"
+            $DropperQuery += "$DropThis`n"
+        }
+
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PROCEDURE' }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name;"
+            $DropperQuery += "$DropThis`n"
+        }
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'INDEX' } | ? { $_.ObjectName -notmatch "PK" }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name;"
+            $DropperQuery += "$DropThis`n"
+        }
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'SEQUENCE' }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name;"
+            $DropperQuery += "$DropThis`n"
+        }
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'LOB' }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name;"
+            $DropperQuery += "$DropThis`n"
+        }
+        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'TABLE' }) {
+            $Type = $Item | Select -ExpandProperty ObjectType
+            $Name = $Item | Select -ExpandProperty ObjectName
+            $DropThis = "DROP $Type $Name CASCADE CONSTRAINTS;"
+            $DropperQuery += "$DropThis`n"
+        }
+        $DropperQuery += "PURGE DBA_RECYCLEBIN;"
+        #$DropperQuery
+        if ($DropperQuery) {
+            Write-Output "[$(Get-Date)] Cleaning up..."
+            Use-OracleDB -TargetDB $DBName -SQLQuery $DropperQuery -PlainText -Confirm
+        } else {
+            Write-Output "[$(Get-Date)] Nothing to do..."
+        }
+        Write-Output "[$(Get-Date)] Checking remaining objects"
+        $RemainingObjects = Use-OracleDB -TargetDB $DBName -SQLQuery @"
+    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount" 
+    FROM dba_objects 
+    WHERE owner = UPPER('$SchemaName')
+    GROUP BY object_type;
+"@
+        if (-not $RemainingObjects -and $Tablespace) {
+            Write-Output "[$(Get-Date)] Checking tablespaces to drop"
+            $TSToDrop = Use-OracleDB -TargetDB $DBName -SQLQuery "SELECT name FROM v`$tablespace WHERE name LIKE '%$SchemaName%';"
+            if ($TSToDrop) {
+                Write-Output "[$(Get-Date)] Found the following tablespaces to drop"
+                Write-Output "$TSToDrop"
+            }
+            $DropperQuery=""
+            foreach ($TS in $TSToDrop) {
+                $DropperQuery += "`nDROP TABLESPACE $TS INCLUDING CONTENTS AND DATAFILES CASCADE CONSTRAINTS;"
+            }
+            if ($DropperQuery) {
+                Use-OracleDB -TargetDB $DBName -SQLQuery $DropperQuery -PlainText -Confirm
+            } else {
+                Write-Output "[$(Get-Date)] Nothing to do..."
+            }
+        }
     }
 }
 
