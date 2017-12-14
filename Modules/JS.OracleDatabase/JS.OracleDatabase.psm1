@@ -271,91 +271,34 @@ function Get-OracleServices
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
-                if (Ping-OracleDB -TargetDB $DBName) {
-                    Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                    if ($DBUser) {
-                        if (-not $DBPass) {
-                            $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                            $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                        }
-                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                    } else {
-                        $LoginString = "/@$DBName"
-                    }
-                    $Output = @'
-SET PAGESIZE 0
-SET HEADING OFF
-SET FEEDBACK OFF
-COLUMN unique_name FORMAT a11
-SELECT name
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+            if ($DBUser) {
+                if (-not $DBPass) {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
+                $LoginString = "${DBUser}/${DBPass}@${DBName}"
+            } else {
+                $LoginString = "/@$DBName"
+            }
+            $Query = @'
+SELECT name AS "ServiceName"
 FROM v$active_services
 WHERE name NOT LIKE ('SYS%')
 ORDER BY 1;
-'@ | &"sqlplus" "-S" "$LoginString"
-                    Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if (($Line.Contains("ORA-")) -or
-                            ($Line.Contains("TNS-"))) {
-                            $ErrorInOutput=$true
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=[String]$DBName
-                                [String]'Services'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+'@
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Building $DBName output" -PercentComplete 65
-                        if ($List) {
-                            foreach ($Line in $($Output -split "`t")) {
-                                if ($Line.trim().Length -gt 0) {
-                                    $List += "$($Line.trim()),"
-                                }
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$DBName
-                                        'Services'=$List
-                                        'ErrorMsg'=""
-                                    }
-                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                                Write-Output $DBObj
-                            }
-                        } elseif ($Table) {
-                            foreach ($Line in $($Output -split "`t")) {
-                                if ($Line.trim().Length -gt 0) {
-                                    $DBProps=[ordered]@{
-                                        'DBName'=$DBName
-                                        'Services'=$Line
-                                        'ErrorMsg'=""
-                                    }
-                                }
-                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                                Write-Output $DBObj
-                            }
-                        } else {
-                            $DBProps=[ordered]@{
-                                'DBName'=$DBName
-                                'Services'=$Output
-                                'ErrorMsg'=""
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                        }
-                    }
-                } else {
-                    $DBProps=[ordered]@{
-                        'DBName'=$DBName
-                        'Services'=""
-                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                    Write-Output $DBObj
                 }
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
