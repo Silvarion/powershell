@@ -530,7 +530,7 @@ SELECT substr(file_name,1,instr(file_name,'/',-1)) AS "FileName"
 FROM dba_data_files, GLOBAL_NAME
 GROUP BY substr(file_name,1,instr(file_name,'/',-1))
 UNION ALL
-SELECT NAME AS "FileName", space_used/$UnitValue AS "Used$Unit", space_limit AS "Allocated$Unit", space_limit AS "Max$Unit"
+SELECT NAME AS "FileName", space_used/$UnitValue AS "Used$Unit", space_limit/$UnitValue AS "Allocated$Unit", space_limit/$UnitValue AS "Max$Unit"
 FROM v`$recovery_file_dest;
 "@
             $TableSpaceQuery = @"
@@ -610,7 +610,7 @@ SELECT x.owner||'.'||x.table_name AS "Table"
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 $ASMQuery = @"
-SELECT disk_group AS "DiskGroup" 
+SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated$Unit"
     , ROUND(MIN(maxb)/$UnitValue,2) AS "Max$Unit"
@@ -642,7 +642,7 @@ ORDER BY DB_NAME;
 SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used_$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated_$Unit"
-    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit" 
+    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit"
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -788,7 +788,7 @@ OR comp_name LIKE '%Vault%';
 
 <#
 .Synopsis
-    Query an Oracle database to get global name, host name, db unique name and 
+    Query an Oracle database to get global name, host name, db unique name and
 .DESCRIPTION
     This function returns the global name of the database
 .EXAMPLE
@@ -1600,7 +1600,7 @@ AND l.serial# = s.serial#;
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
-               
+
             }
         }
     }
@@ -1680,7 +1680,7 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
                 } else {
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
                 }
-               
+
             }
         }
     }
