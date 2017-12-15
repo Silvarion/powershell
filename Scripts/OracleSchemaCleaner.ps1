@@ -24,14 +24,19 @@ WHERE owner = UPPER('$SchemaName');
 "@
 
     $DropperQuery=""
-    foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PACKAGE' }) {
+    foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'JOB' }) {
         $Type = $Item | Select -ExpandProperty ObjectType
         $Name = $Item | Select -ExpandProperty ObjectName
-        $DropThis = "DROP $Type $Name;"
+        $DropThis = @"
+BEGIN
+  dbms_scheduler.drop_job(job_name => '$Name');
+END;
+/
+"@
         $DropperQuery += "$DropThis`n"
     }
 
-    foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PROCEDURE' }) {
+    foreach ($Item in $SchemaObjects | ? { $_.ObjectType -in @('PACKAGE','PROCEDURE','FUNCTION','VIEW','MATERIALIZED VIEW') }) {
         $Type = $Item | Select -ExpandProperty ObjectType
         $Name = $Item | Select -ExpandProperty ObjectName
         $DropThis = "DROP $Type $Name;"
