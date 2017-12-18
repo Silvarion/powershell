@@ -370,7 +370,7 @@ function Get-OracleSessions
                 $LoginString = "/@$DBName"
             }
             $Query = @"
-SELECT sid||':'||serial#||'@'||inst_id AS "Session"
+SELECT q'{'}'||sid||','||serial#||'@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceNames"
     , username AS "UserName"
     , status AS "Status"
@@ -554,7 +554,7 @@ SELECT x.owner||'.'||x.table_name AS "Table"
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 $ASMQuery = @"
-SELECT disk_group AS "DiskGroup" 
+SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated$Unit"
     , ROUND(MIN(maxb)/$UnitValue,2) AS "Max$Unit"
@@ -586,7 +586,7 @@ ORDER BY DB_NAME;
 SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used_$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated_$Unit"
-    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit" 
+    , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit"
 FROM (
     WITH file_hierarchy AS (
         SELECT SYS_CONNECT_BY_PATH(NAME,' ') as name, group_number, file_number, file_incarnation
@@ -732,7 +732,7 @@ OR comp_name LIKE '%Vault%';
 
 <#
 .Synopsis
-    Query an Oracle database to get global name, host name, db unique name and 
+    Query an Oracle database to get global name, host name, db unique name and
 .DESCRIPTION
     This function returns the global name of the database
 .EXAMPLE
@@ -1544,7 +1544,7 @@ AND l.serial# = s.serial#;
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
-               
+
             }
         }
     }
@@ -1624,7 +1624,7 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
                 } else {
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
                 }
-               
+
             }
         }
     }
@@ -2366,8 +2366,8 @@ exit;
                                 $DBProps = @{ 'DBName' = [String]$DBName }
                                 $ResObj = New-Object -TypeName PSObject -Property $DBProps
                                 $ColCounter = 0
-                                foreach ($Value in $HeaderLine -split ",") {
-                                    if ([String]$HeaderLine -notlike "*,*") {
+                                foreach ($Value in $HeaderLine -split "|") {
+                                    if ([String]$HeaderLine -notlike "*|*") {
                                         Write-Verbose "Single Header found"
                                         $Header = $HeaderLine
                                     } else {
@@ -2400,19 +2400,20 @@ exit;
                                 $TempList = ""
                                 foreach ($Item in $Row -split '\|') {
                                     if ($([String]$Item).Trim()) {
-                                        $TempList += $([String]$Item).Trim() + ','
+                                        $TempList += $([String]$Item).Trim() + '|'
                                     }
                                 }
-                                $Row = $TempList.Trim(",")
+                                $Row = $TempList.Trim("|")
                                 if ($Row -match "[a-z0-9]") {
                                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Working on resultset $Row"
                                     if ($Counter -eq 1) {
                                        Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Column List"
                                        $ColumnList=""
-                                        foreach ($Column in $Row -split ",") {
-                                            $ColumnList += "$Column,"
+                                       Write-Verbose "Processing $($Row -split '\|')"
+                                       foreach ($Column in @($Row -split "\|")) {
+                                            $ColumnList += "$Column|"
                                         }
-                                        $ColumnList = $ColumnList.TrimEnd(",")
+                                        $ColumnList = $ColumnList.TrimEnd("|")
                                         Write-Verbose "Headers: $ColumnList"
                                         $Counter++
                                     } else {
@@ -2421,12 +2422,13 @@ exit;
                                         $ResObj = New-Object -TypeName PSObject -Property $DBProps
                                         $ColCounter = 0
                                         Write-Verbose "Row: $Row"
-                                        foreach ($Value in $Row -split ",") {
-                                            if ([String]$ColumnList -notlike "*,*") {
+                                        Write-Verbose "Processing $($Row -split '\|')"
+                                        foreach ($Value in $Row -split '\|') {
+                                            if ([String]$ColumnList -notlike "*|*") {
                                                 Write-Verbose "Single Header found"
                                                 $Header = $ColumnList
                                             } else {
-                                                $Header =  $($($ColumnList -split ',')[$ColCounter])
+                                                $Header =  $($($ColumnList -split "\|")[$ColCounter])
                                             }
                                             Write-Verbose "Counter: $ColCounter | PropertyName: $Header | Value: $Value"
                                             $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value $([String]$Value).Trim()
@@ -2472,8 +2474,8 @@ function Remove-OracleSchema {
         Write-Output "[$(Get-Date)] Processing $DBName"
         Write-Output "[$(Get-Date)] Checking current objects"
         Use-OracleDB -TargetDB $DBName -SQLQuery @"
-    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount" 
-    FROM dba_objects 
+    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount"
+    FROM dba_objects
     WHERE owner = UPPER('$SchemaName')
     GROUP BY object_type;
 "@
@@ -2532,8 +2534,8 @@ function Remove-OracleSchema {
         }
         Write-Output "[$(Get-Date)] Checking remaining objects"
         $RemainingObjects = Use-OracleDB -TargetDB $DBName -SQLQuery @"
-    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount" 
-    FROM dba_objects 
+    SELECT object_type AS "ObjectType", COUNT(object_name) AS "ObjectCount"
+    FROM dba_objects
     WHERE owner = UPPER('$SchemaName')
     GROUP BY object_type;
 "@
