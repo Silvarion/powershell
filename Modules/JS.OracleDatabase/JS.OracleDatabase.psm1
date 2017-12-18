@@ -371,7 +371,7 @@ function Get-OracleSessions
             }
             $Query = @"
 SELECT q'{'}'||sid||','||serial#||'@'||inst_id||q'{'}' AS "Session"
-    , service_name AS "ServiceNames"
+    , service_name AS "ServiceName"
     , username AS "UserName"
     , status AS "Status"
     , osuser AS "OSUser"
