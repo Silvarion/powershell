@@ -272,17 +272,6 @@ function Get-OracleServices
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
-            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-            if ($DBUser) {
-                if (-not $DBPass) {
-                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                }
-                $LoginString = "${DBUser}/${DBPass}@${DBName}"
-            } else {
-                $LoginString = "/@$DBName"
-            }
             $Query = @'
 SELECT name AS "ServiceName"
 FROM v$active_services
@@ -291,6 +280,16 @@ ORDER BY 1;
 '@
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
             foreach ($DBName in $TargetDB) {
+                if ($DBUser) {
+                    if (-not $DBPass) {
+                        $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                        $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                    }
+                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                } else {
+                    $LoginString = "/@$DBName"
+                }
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
@@ -359,16 +358,6 @@ function Get-OracleSessions
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            if ($DBUser) {
-                if (-not $DBPass) {
-                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                }
-                $LoginString = "${DBUser}/${DBPass}@${DBName}"
-            } else {
-                $LoginString = "/@$DBName"
-            }
             $Query = @"
 SELECT q'{'}'||sid||','||serial#||'@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceName"
@@ -387,9 +376,19 @@ FROM gv`$session
                 $Query +=";"
             }
             foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if ($DBUser) {
+                    if (-not $DBPass) {
+                        $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                        $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                    }
+                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                } else {
+                    $LoginString = "/@$DBName"
+                }
+                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
-                    Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                     if ($DBUser) {
                         Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
                     } else {
@@ -397,7 +396,7 @@ FROM gv`$session
                     }
                 }
             }
-            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
+            Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -460,11 +459,6 @@ function Get-OracleSize
                 $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-            }
-            if ($DBUser) {
-                $LoginString = "${DBUser}/${DBPass}@${DBName}"
-            } else {
-                $LoginString = "/@$DBName"
             }
             $FileSystemQuery = @"
 SELECT substr(file_name,1,instr(file_name,'/',-1)) AS "FileName"
@@ -634,6 +628,11 @@ ORDER BY DB_NAME;
                             $Query = $TableQuery
                         }
                     }
+                    if ($DBUser) {
+                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                    } else {
+                        $LoginString = "/@$DBName"
+                    }
                     Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                     if ($DBUser) {
                         Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
@@ -684,46 +683,31 @@ function Get-OracleVaultStatus
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
+                    $Query=@'
+SELECT comp_name AS "ComponentName"
+    , status AS "Status"
+    , modified AS "LastModified"
+FROM dba_registry
+WHERE comp_name LIKE '%Label%'
+OR comp_name LIKE '%Vault%';
+'@
             foreach ($DBName in $TargetDB) {
-                if (Ping-OracleDB -TargetDB $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
                     if ($DBUser) {
                         $LoginString = "${DBUser}/${DBPass}@${DBName}"
                     } else {
                         $LoginString = "/@$DBName"
                     }
-                    $Output=@'
-COLUMN name FORMAT a21
-COLUMN status FORMAT a5
-SET HEADING OFF
-SET FEEDBACK OFF
-SELECT comp_name as name||':'||status||':'||modified
-FROM dba_registry
-WHERE comp_name LIKE '%Label%'
-OR comp_name LIKE '%Vault%';
-'@ | &"sqlplus" "-S" "$LoginString"
-                    if ($Output.Contains("ORA-")) {
-                        $Output = "$($Output.Substring(0,75))..."
+                    Write-Progress -Activity "Gathering $DBName Vault status" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    foreach ($Line in [String[]]$($Output -split "`n")) {
-                        $DBProps=[ordered]@{
-                            'DBName'=$DBName
-                            'Component'=$($Line -split ':')[0]
-                            'Status'=$($Line -split ':')[1]
-                            'Modified'=$($Line -split ':')[2]
-                            'ErrorMsg'=""
-                        }
-                        $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                        Write-Output $DBObj
-                        $Counter++
-                    }
+
                 } else {
-                    $DBProps=[ordered]@{
-                        'DBName'=$DBName
-                        'Component'=""
-                        'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                    Write-Output $DBObj
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
                 }
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
@@ -889,67 +873,29 @@ function Get-OracleInstances {
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            foreach ( $DBName in $TargetDB) {
+            $Query = @'
+SELECT instance_number AS "InstanceNumber"
+    , instance_name AS "InstanceName"
+FROM gv$instance ORDER BY 1;
+exit
+'@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Instances" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
-		            Write-Debug "Database pinged successfully"
                     if ($DBUser) {
                         $LoginString = "${DBUser}/${DBPass}@${DBName}"
                     } else {
                         $LoginString = "/@$DBName"
                     }
-                    # Using here-string to pipe the SQL query to SQL*Plus
-                    $Output = @'
-SET HEADING OFF
-SET PAGESIZE 0
-SELECT instance_name from gv$instance ORDER BY 1;
-exit
-'@ | &"sqlplus" "-S" "$LoginString"
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if ($Line.Contains("ORA-")) {
-                            $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..."
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'InstanceName'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+                    Write-Progress -Activity "Gathering $DBName Instances" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        if ($Table) {
-                            foreach ($Line in $($Output -split "`t")) {
-                                if ($Line.trim().Length -gt 0) {
-                                    $DBProps=[ordered]@{
-                                        [String]'DBName'=$DBName
-                                        [String]'InstanceName'=$Line
-                                        [String]'ErrorMsg'=""
-                                    }
-                                }
-                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                                Write-Output $DBObj
-                            }
-                        } else {
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'InstanceName'=$Output
-                                [String]'ErrorMsg'=""
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                        }
-                    }
+
                 } else {
-                    $DBProps = [ordered]@{
-                        [String]'DBName'=$DBName
-                        [String]'InstanceName'=""
-                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                    Write-Output $DBObj
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
                 }
             }
         } else {
@@ -1002,67 +948,30 @@ function Get-OracleHosts {
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
+            $Query = @'
+
+SELECT host_name AS "HostName"
+    , instance_name as "InstanceName" 
+FROM gv$instance 
+ORDER BY 1;
+'@
             foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Hosts" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
-			        Write-Debug "Database pinged successfully"
                     if ($DBUser) {
                         $LoginString = "${DBUser}/${DBPass}@${DBName}"
                     } else {
                         $LoginString = "/@$DBName"
                     }
-                    # Using here-string to pipe the SQL query to SQL*Plus
-                    $Output = @'
-SET HEADING OFF
-SET PAGESIZE 0
-SELECT host_name from gv$instance ORDER BY 1;
-exit
-'@ | &"sqlplus" "-S" "$LoginString"
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if ($Line.Contains("ORA-")) {
-                            $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..."
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'Hosts'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+                    Write-Progress -Activity "Gathering $DBName Hosts" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        if ($Table) {
-                            foreach ($Line in $($Output -split "`t")) {
-                                if ($Line.trim().Length -gt 0) {
-                                    $DBProps=[ordered]@{
-                                        [String]'DBName'=$DBName
-                                        [String]'Hosts'=$Line
-                                        [String]'ErrorMsg'=""
-                                    }
-                                }
-                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                                Write-Output $DBObj
-                            }
-                        } else {
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'Hosts'=$Output
-                                [String]'ErrorMsg'=""
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                        }
-                    }
+
                 } else {
-                    $DBProps = [ordered]@{
-                        [String]'DBName'=$DBName
-                        [String]'Hosts'=""
-                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                    Write-Output $DBObj
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
                 }
             }
         } else {
@@ -1115,80 +1024,29 @@ function Get-OracleUsers {
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Pinging Database" -PercentComplete 10
-                if (Ping-OracleDB -TargetDB $DBName) {
-			        Write-Debug "Database pinged successfully"
-                    # Using here-string to pipe the SQL query to SQL*Plus
-                    if ($DBUser) {
-                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                    } else {
-                        $LoginString = "/@$DBName"
-                    }
-                    Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Querying Database" -PercentComplete 30
-                    $Output = @'
-SET HEADING OFF
-SET PAGESIZE 0
-SET LINESIZE 999
-SET FEEDBACK OFF
-SELECT username||':'||account_status
+            Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Querying Database" -PercentComplete 30
+            $Query = @'
+SELECT username AS "UserName"
+    , external_name AS "ExternalName"
+    , account_status AS "Status"
+    , created AS "Created"
+    , default_tablespace AS "Tablespace"
+    , profile AS "ProfileName"
 FROM dba_users
-WHERE username NOT IN ('SYS','SYSTEM','SYSAUX','DBSNMP')
 ORDER BY 1;
-exit
-'@ | &"sqlplus" "-S" "$LoginString"
-                    Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Checking Output" -PercentComplete 50 -Id 100
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if ($Line.Contains("ORA-")) {
-                            $ErrorInOutput=$true
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'Users'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+'@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Building Output Object" -PercentComplete 90 -id 100
-                        if ($Table) {
-                            $TotalRows = $Output.Length
-                            $Counter = 0
-                            Write-Progress -Activity "Building users table from $DBName..." -CurrentOperation "Pinging Database" -PercentComplete $(($Counter++ / ($TotalRows)*100)) -ParentId 100
-                            foreach ($Line in $($Output -split "`t")) {
-                                if ($Line.trim().Length -gt 0) {
-                                    $DBProps=[ordered]@{
-                                        [String]'DBName'=$DBName
-                                        [String]'Users'=$($Line -split ':')[0]
-                                        [String]'Status'=$($Line -split ':')[1]
-                                        [String]'ErrorMsg'=""
-                                    }
-                                }
-                                $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                                Write-Progress -Activity "Building users table from $DBName..." -CurrentOperation "Adding User $($DBObj.Users)" -PercentComplete $(($Counter++ / ($TotalRows)*100)) -ParentId 100
-                                Write-Output $DBObj
-                            }
-                        } else {
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'Users'=$Output
-                                [String]'ErrorMsg'=""
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                        }
-                    }
+
                 } else {
-                    $DBProps = [ordered]@{
-                        [String]'DBName'=$DBName
-                        [String]'Users'=""
-                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                    Write-Output $DBObj
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
                 }
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
@@ -1242,53 +1100,21 @@ function Get-OracleDBID {
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            foreach ($DBName in $TargetDB) {
-                if (Ping-OracleDB($DBName)) {
-					Write-Debug "Database pinged successfully"
-                    if ($DBUser) {
-                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                    } else {
-                        $LoginString = "/@$DBName"
-                    }
-                    # Using here-string to pipe the SQL query to SQL*Plus
-                   $Output =  @'
-SET HEADING OFF
-SET PAGESIZE 0
+            $Query =  @'
 SELECT dbid FROM v$database;
-exit
-'@ | &"sqlplus" "-S" "$LoginString"
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if ($Line.Contains("ORA-")) {
-                            $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..."
-                            $DBProps=[ordered]@{
-                                [String]'DBName'=$DBName
-                                [String]'DBID'=""
-                                [String]'ErrorMsg'=[String]$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
+'@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName DBID" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName DBID" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                     }
-                    if (-not $ErrorInOutput) {
-                        $DBProps = [ordered]@{
-                            [String]'DBName'=$TargetDB
-                            [String]'DBID'=$Output
-                            [String]'ErrorMsg'=""
-                        }
-                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                        Write-Output $DBObj
-                    }
+
                 } else {
-                    $DBProps = [ordered]@{
-                        [String]'DBName'=$DBName
-                        [String]'DBID'=""
-                        [String]'ErrorMsg'=$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
-                    }
-                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                    Write-Output $DBObj
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
                 }
             }
         } else {
@@ -1531,7 +1357,12 @@ function Get-OracleLongOperations {
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $Query = @"
-SELECT s.username AS "UserName", l.SID||':'||l.SERIAL# AS "Session", l.opname AS "Operation", l.TOTALWORK AS "Total", l.SOFAR AS "Current", l.SOFAR/l.TOTALWORK AS "Percent"
+SELECT s.username AS "UserName"
+    , l.SID||':'||l.SERIAL# AS "Session"
+    , l.opname AS "Operation"
+    , l.TOTALWORK AS "Total"
+    , l.SOFAR AS "Current"
+    , l.SOFAR/l.TOTALWORK AS "Percent"
 FROM gv`$session_longops l, gv`$session s
 WHERE totalwork > 0
 AND SOFAR/TOTALWORK < 1
@@ -1539,12 +1370,18 @@ AND l.SID = s.SID
 AND l.serial# = s.serial#;
 "@
             foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+                Write-Progress -Activity "Gathering $DBName Long Running SQL" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    }
 
+                } else {
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
+                }
             }
         }
     }
@@ -1608,26 +1445,37 @@ function Get-OracleLongRunQueries {
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $Query = @"
-SELECT ss.sql_id AS SqlId, ss.inst_id, ss.sid, ss.serial#, ss.module, ss.action
-    ,(sysdate-sql_exec_start)*24*60*60 Secs, to_char(sql_exec_start,'HH24:MI:SS') SQLStart, username, machine
-from gv`$session ss, gv`$sql sq
+SELECT ss.sql_id AS "SqlId"
+    , q'{'}'||ss.sid||','||ss.serial#||'@'||ss.inst_id||q'{'}' AS "Session"
+    , ss.username AS "UserName"
+    , ss.machine AS "Machine"
+    , ss.module AS "Module"
+    , ss.action AS "Action"
+    , ((sysdate-sql_exec_start)*24*60*60) AS "Seconds"
+    , to_char(sql_exec_start,'HH24:MI:SS') AS "StartTime"
+FROM gv`$session ss, gv`$sql sq
 where ss.sql_id=sq.sql_id
 and ss.inst_id=sq.inst_id
 and status='ACTIVE'
 $UserFilter
-and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit
-;
+and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 "@
             foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
-                }
+                Write-Progress -Activity "Gathering $DBName Long Running SQL" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    }
 
+                } else {
+                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
+                }
             }
         }
-    }
+    } 
 }
 
 <#
@@ -1680,7 +1528,10 @@ function Get-OracleSQLText {
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
             $Query = @"
-SELECT sql_id, t.sql_text sql_text, b.name bind_name, b.value_string bind_value
+SELECT sql_id AS "SqlId"
+    , t.sql_text AS "SQLText"
+    , b.name AS "BindName"
+    , b.value_string AS "BindValue"
 FROM
   v`$sql t
 JOIN
@@ -2362,23 +2213,25 @@ exit;
                                 $HeaderLine = $($HeaderLine -split "select")[1]
                                 $HeaderLine = $($HeaderLine -split "from")[0]
                                 $HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT","").Replace("COUNT","")
+                                $HeaderLine = $HeaderLine.Replace(",","|")
                                 Write-Verbose "HeaderLine: $HeaderLine"
                                 $DBProps = @{ 'DBName' = [String]$DBName }
                                 $ResObj = New-Object -TypeName PSObject -Property $DBProps
                                 $ColCounter = 0
-                                foreach ($Value in $HeaderLine -split "|") {
-                                    if ([String]$HeaderLine -notlike "*|*") {
+                                foreach ($Value in $HeaderLine -split "\|") {
+                                    if ([String]$HeaderLine -notmatch "\|") {
                                         Write-Verbose "Single Header found"
                                         $Header = $HeaderLine
                                     } else {
-                                        $Header =  $($($HeaderLine -split ',')[$ColCounter])
+                                        $Header =  $($($HeaderLine -split "\|")[$ColCounter])
                                     }
                                     Write-Verbose "Adding prop! | PropertyName: $Header | Value: "
-                                    $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value ""
+                                    $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value " "
                                     $ColCounter++
                                 }
+                                Write-Verbose "Adding prop! | PropertyName: ErrorMsg | Value: $Line"
                                 $ResObj | Add-Member -MemberType NoteProperty -Name 'ErrorMsg' -Value $Line
-                                Write-Output $DBObj
+                                Write-Output $ResObj
                                 Break
                             }
                         }
@@ -2424,7 +2277,7 @@ exit;
                                         Write-Verbose "Row: $Row"
                                         Write-Verbose "Processing $($Row -split '\|')"
                                         foreach ($Value in $Row -split '\|') {
-                                            if ([String]$ColumnList -notlike "*|*") {
+                                            if ([String]$ColumnList -notmatch "\|") {
                                                 Write-Verbose "Single Header found"
                                                 $Header = $ColumnList
                                             } else {
