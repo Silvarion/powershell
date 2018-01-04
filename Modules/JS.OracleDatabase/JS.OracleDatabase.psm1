@@ -148,6 +148,10 @@ function Get-OracleDBInfo {
                             $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
                         }
                         $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                        if ($DBUser -eq "SYS") {
+                            $LoginString += " AS SYSDBA"
+                        }
+
                     } else {
                         $LoginString = "/@$DBName"
                     }
@@ -286,7 +290,10 @@ ORDER BY 1;
                         $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                         $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
                     }
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                    if ($DBUser -eq "SYS") {
+                        $LoginString += " AS SYSDBA"
+                    }
+
                 } else {
                     $LoginString = "/@$DBName"
                 }
@@ -376,16 +383,6 @@ FROM gv`$session
                 $Query +=";"
             }
             foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    if (-not $DBPass) {
-                        $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                        $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                    }
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                } else {
-                    $LoginString = "/@$DBName"
-                }
                 Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
@@ -1571,7 +1568,7 @@ function Get-OracleDBVersion {
             ValueFromPipelineByPropertyName=$True,
             Position=0,
             HelpMessage="Target Oracle Database name")]
-        [String]$TargetDB,
+        [String[]]$TargetDB,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -1609,10 +1606,12 @@ FROM (
 	)
 WHERE ROWNUM = 1;
 "@
-            if ($DBUser) {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -DBUSer "$DBUser" -DBPass "$DBPass"
-            } else {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
+            foreach ($DBName in $TargetDB) {
+                if ($DBUser) {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUSer "$DBUser" -DBPass "$DBPass"
+                } else {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                }
             }
         }
     }
@@ -2156,6 +2155,9 @@ SET COLSEP '|'
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                     if ($DBUser) {
                         $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                        if ($DBUser -eq "SYS") {
+                            $LoginString += " AS SYSDBA"
+                        }
                     } else {
                         $LoginString = "/@$DBName"
                     }
@@ -2201,7 +2203,7 @@ exit;
                     } # ParameterSet BySQLFile or BySQLQuery
                     foreach ($Line in $Output) {
                         Write-Verbose "Analizing $Line"
-                        if ($Line.Contains("ORA-") -or $Line.Contains("SP2-") -or $Line.Contains("PLS-")) {
+                        if ($Line -match "^ORA-" -or $Line -match "^SP2-" -or $Line -match "^PLS-") {
                             Write-Verbose "Found Error in Output"
                             $ErrorInOutput=$true
                             if ($PlainText) {
@@ -2212,21 +2214,30 @@ exit;
                                 $HeaderLine = $HeaderLine.Replace("(","").Replace(")","")
                                 $HeaderLine = $($HeaderLine -split "select")[1]
                                 $HeaderLine = $($HeaderLine -split "from")[0]
-                                $HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT","").Replace("COUNT","")
+                                $HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT(","").Replace("COUNT(","")
                                 $HeaderLine = $HeaderLine.Replace(",","|")
                                 Write-Verbose "HeaderLine: $HeaderLine"
                                 $DBProps = @{ 'DBName' = [String]$DBName }
                                 $ResObj = New-Object -TypeName PSObject -Property $DBProps
                                 $ColCounter = 0
-                                foreach ($Value in $HeaderLine -split "\|") {
-                                    if ([String]$HeaderLine -notmatch "\|") {
-                                        Write-Verbose "Single Header found"
+                                if ([String]$HeaderLine -notmatch "\|") {
+                                    Write-Verbose "Single Header found"
+                                    if ($HeaderLine -like "* AS *") {
+                                        $Header = $($HeaderLine -split " AS ")[1].replace('"','')
+                                    } else  {
                                         $Header = $HeaderLine
-                                    } else {
-                                        $Header =  $($($HeaderLine -split "\|")[$ColCounter])
                                     }
-                                    Write-Verbose "Adding prop! | PropertyName: $Header | Value: "
-                                    $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value " "
+                                } else {
+                                    foreach ($Value in $HeaderLine -split "\|") {
+                                        Write-Verbose "Processing Header: $Value"
+                                        $Header =  $Value
+                                        if ($Value -like "* AS *") {
+                                            Write-Verbose "$($Value -split " AS ")"
+                                            $Header = $($Value -split " AS ")[1].replace('"','')
+                                        }
+                                        Write-Verbose "Adding prop! | PropertyName: $Header | Value: "
+                                        $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value " "
+                                    }
                                     $ColCounter++
                                 }
                                 Write-Verbose "Adding prop! | PropertyName: ErrorMsg | Value: $Line"
@@ -2287,6 +2298,7 @@ exit;
                                             $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value $([String]$Value).Trim()
                                             $ColCounter++
                                         }
+                                        $ResObj | Add-Member -MemberType NoteProperty -Name 'ErrorMsg' -Value " "
                                         Write-Output $ResObj
                                         $Counter++
                                     }
@@ -2412,6 +2424,60 @@ function Remove-OracleSchema {
     }
 }
 
+function Test-OracleHealth {
+    [CmdletBinding()]
+    [Alias("orahealth")]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
+    )
+    Process {
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            }
+            Write-Progress -Activity "Checking $DBName Health Status" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Checking $DBName Health Status" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                if (Ping-OracleDB -TargetDB $DBName) {
+                    Write-Progress -Activity "Checking $DBName Health Status" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                    $GeneralInfoQuery = @'
+SELECT 'DATABASE NAME' AS "AttributeName", db_unique_name AS "Value" FROM v$database
+UNION ALL
+SELECT 'NUMBER OF INSTANCES', TO_CHAR(MAX(inst_id)) FROM gv$instance
+UNION ALL
+SELECT 'DATABASE HOSTS', listagg(host_name,', ') WITHIN GROUP(ORDER BY inst_id) FROM gv$instance
+UNION ALL
+SELECT 'DATA DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_CREATE_FILE_DEST'
+UNION ALL
+SELECT 'RECOVERY DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_RECOVERY_FILE_DEST';
+'@
+                    if ($DBUser) {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $GeneralInfoQuery -DBUser $DBUser -DBPass $DBPass
+                    } else {
+                        Use-OracleDB -TargetDB $DBName -SQLQuery $GeneralInfoQuery
+                    }
+                }
+            }
+            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
+    }
+}
 
 # SIG # Begin Signature block
 # MIID9jCCAt6gAwIBAgIJAIxehrC8IAp5MA0GCSqGSIb3DQEBBQUAMIGiMQswCQYD
