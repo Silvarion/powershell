@@ -331,6 +331,9 @@ function Get-OracleSessions
             ValueFromPipeline=$true)]
         # It can check several databases at once
         [String[]]$TargetDB,
+        # SQL filter to add in the WHERE section of the query
+        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [String]$SQLFilter,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -338,22 +341,9 @@ function Get-OracleSessions
         [String]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt,
-        # Optional a filter by username want to be implemented in the query
-        [String[]]$Username
+        [Switch]$PasswordPrompt
     )
     Begin {
-        if ($Username) {
-            $Counter = 1
-            foreach ($Name in $Username) {
-                if ($Counter -eq 1) {
-                    $UserList = "'$Name'"
-                } else {
-                    $UserList = ",'$Name'"
-                }
-                $Counter++
-            }
-        }
     }
     Process {
         if (Test-OracleEnv) {
@@ -365,8 +355,28 @@ function Get-OracleSessions
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
+            if ($SQLFilter) {
+                if ($Query -contains "WHERE") {
+                    if ($SQLFilter -match "^WHERE") {
+                        $SQLFilter = $SQLFilter.Replace("WHERE","AND")
+                    } else {
+                        Write-Verbose "Filter is good"
+                    }
+                } else {
+                Write-Verbose "No WHERE in the query"
+                    if ($SQLFilter -match "^WHERE") {
+                        Write-Verbose "Filter is good"
+                    } else {
+                        if ($SQLFilter -match "^AND") {
+                            $SQLFilter = $SQLFilter.Replace("AND","WHERE")
+                        } else {
+                            $SQLFilter = "WHERE $SQLFilter"
+                        }
+                    }
+                }
+            }
             $Query = @"
-SELECT q'{'}'||sid||','||serial#||'@'||inst_id||q'{'}' AS "Session"
+SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceName"
     , username AS "UserName"
     , status AS "Status"
@@ -376,12 +386,8 @@ SELECT q'{'}'||sid||','||serial#||'@'||inst_id||q'{'}' AS "Session"
     , module AS "Module"
     , sql_id AS "RunningSqlId"
 FROM gv`$session
+$SQLFilter;
 "@
-            if ($Userlist) {
-                $Query += "WHERE username in ($UserList);"
-            } else {
-                $Query +=";"
-            }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
@@ -457,6 +463,7 @@ function Get-OracleSize
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
+            Write-Verbose "Building FileSystemQuery"
             $FileSystemQuery = @"
 SELECT substr(file_name,1,instr(file_name,'/',-1)) AS "FileName"
     , ROUND(SUM(user_bytes)/$UnitValue,2) AS "Used$Unit"
@@ -468,6 +475,7 @@ UNION ALL
 SELECT NAME AS "FileName", space_used/$UnitValue AS "Used$Unit", space_limit/$UnitValue AS "Allocated$Unit", space_limit/$UnitValue AS "Max$Unit"
 FROM v`$recovery_file_dest;
 "@
+            Write-Verbose "Building TablespaceQuery"
             $TableSpaceQuery = @"
 SELECT ts.tablespace_name AS "Tablespace"
     , ROUND(size_info.used/$UnitValue,2) AS "Used_$Unit"
@@ -510,6 +518,7 @@ FROM
 WHERE ts.tablespace_name = size_info.tablespace_name
 and   ts.tablespace_name = tsg.tablespace_name (+);
 "@
+            Write-Verbose "Building TableQuery"
             $TableQuery = @"
 SELECT x.owner||'.'||x.table_name AS "Table"
     , ROUND(SUM(bytes)/$UnitValue,2) AS "Size_$Unit"
@@ -544,6 +553,7 @@ SELECT x.owner||'.'||x.table_name AS "Table"
 "@
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+                Write-Verbose "Building ASMQuery"
                 $ASMQuery = @"
 SELECT disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used$Unit"
@@ -573,8 +583,10 @@ AND  UPPER(db_name) = UPPER('$DBName')
 GROUP BY db_name, disk_group
 ORDER BY DB_NAME;
 "@
+                Write-Verbose "Building FullASMQuery"
                 $FullASMQuery = @"
-SELECT disk_group AS "DiskGroup"
+SELECT db_name AS "Database"
+    , disk_group AS "DiskGroup"
     , ROUND(SUM(used)/$UnitValue,2) AS "Used_$Unit"
     , ROUND(SUM(alloc)/$UnitValue,2) AS "Allocated_$Unit"
     , ROUND(MIN(maxb)/$UnitValue,2) AS "Max_$Unit"
@@ -998,6 +1010,9 @@ function Get-OracleUsers {
             ValueFromPipelineByPropertyName=$true,
             HelpMessage="Target Oracle Database name")]
         [String[]]$TargetDB,
+        # SQL filter to add in the WHERE section of the query
+        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [String]$SQLFilter,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -1022,7 +1037,27 @@ function Get-OracleUsers {
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Querying Database" -PercentComplete 30
-            $Query = @'
+            if ($SQLFilter) {
+                if ($Query -contains "WHERE") {
+                    if ($SQLFilter -match "^WHERE") {
+                        $SQLFilter = $SQLFilter.Replace("WHERE","AND")
+                    } else {
+                        Write-Verbose "Filter is good"
+                    }
+                } else {
+                Write-Verbose "No WHERE in the query"
+                    if ($SQLFilter -match "^WHERE") {
+                        Write-Verbose "Filter is good"
+                    } else {
+                        if ($SQLFilter -match "^AND") {
+                            $SQLFilter = $SQLFilter.Replace("AND","WHERE")
+                        } else {
+                            $SQLFilter = "WHERE $SQLFilter"
+                        }
+                    }
+                }
+            }
+            $Query = @"
 SELECT username AS "UserName"
     , external_name AS "ExternalName"
     , account_status AS "Status"
@@ -1030,8 +1065,8 @@ SELECT username AS "UserName"
     , default_tablespace AS "Tablespace"
     , profile AS "ProfileName"
 FROM dba_users
-ORDER BY 1;
-'@
+$SQLFilter;
+"@
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
                 if (Ping-OracleDB -TargetDB $DBName) {
@@ -2230,12 +2265,12 @@ exit;
                                 } else {
                                     foreach ($Value in $HeaderLine -split "\|") {
                                         Write-Verbose "Processing Header: $Value"
-                                        $Header =  $Value
+                                        $Header = $Value
                                         if ($Value -like "* AS *") {
                                             Write-Verbose "$($Value -split " AS ")"
                                             $Header = $($Value -split " AS ")[1].replace('"','')
                                         }
-                                        Write-Verbose "Adding prop! | PropertyName: $Header | Value: "
+                                        Write-Verbose "Adding prop! | PropertyName: $Header | Value: $Value"
                                         $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value " "
                                     }
                                     $ColCounter++
@@ -2293,6 +2328,9 @@ exit;
                                                 $Header = $ColumnList
                                             } else {
                                                 $Header =  $($($ColumnList -split "\|")[$ColCounter])
+                                            }
+                                            if ($Value -eq "- Null -") {
+                                                $Value = " "
                                             }
                                             Write-Verbose "Counter: $ColCounter | PropertyName: $Header | Value: $Value"
                                             $ResObj | Add-Member -MemberType NoteProperty -Name $Header.Trim() -Value $([String]$Value).Trim()
