@@ -60,9 +60,7 @@ function Test-OracleEnv {
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
 #>
-
-function Ping-OracleDB
-{
+function Ping-OracleDB {
     [CmdletBinding()]
     [Alias("oraping")]
     Param (
@@ -245,8 +243,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 #>
-function Get-OracleServices
-{
+function Get-OracleServices {
     [CmdletBinding()]
     [Alias("orasrvc")]
     Param (
@@ -321,8 +318,7 @@ ORDER BY 1;
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 #>
-function Get-OracleSessions
-{
+function Get-OracleSessions {
     [CmdletBinding()]
     [Alias("orasession")]
     Param (
@@ -410,8 +406,7 @@ $SQLFilter;
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 #>
-function Get-OracleSize
-{
+function Get-OracleSize {
     [CmdletBinding()]
     [Alias("orasize")]
     Param (
@@ -659,10 +654,9 @@ ORDER BY DB_NAME;
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve the status of Database Vault in an Oracle DB
 #>
-function Get-OracleVaultStatus
-{
+function Get-OracleOptions {
     [CmdletBinding()]
-    [Alias("oravault")]
+    [Alias("oraoptions")]
     [OutputType([String[]])]
     Param (
         [Parameter(Mandatory=$true,
@@ -691,26 +685,22 @@ SELECT comp_name AS "ComponentName"
     , status AS "Status"
     , modified AS "LastModified"
 FROM dba_registry
-WHERE comp_name LIKE '%Label%'
-OR comp_name LIKE '%Vault%';
+ORDER BY 1;
 '@
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
-                    if ($DBUser) {
-                        $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                    } else {
-                        $LoginString = "/@$DBName"
-                    }
-                    Write-Progress -Activity "Gathering $DBName Vault status" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                    if ($DBUser) {
-                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                    } else {
-                        Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                    }
-
+                if ($DBUser) {
+                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
                 } else {
-                    Write-Warning "[$(Get-Date)] $DBName database not reachable"
+                    $LoginString = "/@$DBName"
                 }
+                Write-Progress -Activity "Gathering $DBName Options and Statuses" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                if ($DBUser) {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                } else {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                }
+            }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -1609,6 +1599,234 @@ WHERE ROWNUM = 1;
     }
 }
 
+
+<#
+.Synopsis
+    Creates a DB link on the target database
+.DESCRIPTION
+
+.EXAMPLE
+
+.ROLE
+
+#>
+function Add-OracleDBLink {
+    [CmdletBinding()]
+    [Alias("add-dblink")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Schema Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="Onwer schema for the DB Link")]
+        [String]$SchemaName,
+        # DB Link Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="DB Link Name")]
+        [String]$LinkName,
+        # DB Link Username
+        [Parameter(Mandatory=$true,
+            HelpMessage="Username to connect to using the db link")]
+        [String]$LinkUser,
+        # DB Link Password
+        [Parameter(HelpMessage="Password to use with the db link")]
+        [String]$LinkPassword,
+        # DB Link Password Promt flag
+        [Parameter(HelpMessage="Ask for the password to use with the db link")]
+        [Switch]$LinkPasswordPrompt,
+        # DB Link Password Values
+        [Parameter(HelpMessage="Password to use with the db link as in IDENTIFIED BY VALUES")]
+        [String]$LinkPswdValues,
+        # DB Link Host (Target database)
+        [Parameter(Mandatory = $true,
+            HelpMessage="DB Link target databasse name/descriptor")]
+        [String]$LinkTarget
+    )
+    Process { 
+        if ($LinkPasswordPrompt) {
+            $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $LinkUser at $LinkTarget"
+            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+            $LinkPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        }
+        foreach ($DBName in $TargetDB) {
+            if (Test-OracleEnv) {
+                if ($PasswordPrompt) {
+                    if ($DBUser.Length -eq 0) {
+                        $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                    }
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
+                if ($LinkPswdValues) {
+                    $CreateCommand = "CREATE DATABASE LINK $LinkName CONNECT TO $LinkUser IDENTIFIED BY VALUES '$LinkPswdValues' USING '$LinkTarget'"
+                } elseif ($LinkPassword -and -not $LinkPswdValues) {
+                    $CreateCommand = "CREATE DATABASE LINK $LinkName CONNECT TO $LinkUser IDENTIFIED BY `"$LinkPassword`" USING '$LinkTarget'"
+                } else {
+                    $LinkPass = Use-OracleDB -TargetDB $LinkTarget -SQLQuery @"
+                    SET LINESIZE 5000
+                    SELECT spare4 AS `"LinkPass`" FROM sys.user$ WHERE name = '$LinkUser';
+"@ | Select -ExpandProperty LinkPass
+                    $CreateCommand = "CREATE DATABASE LINK $LinkName CONNECT TO $LinkUser IDENTIFIED BY VALUES '$LinkPass' USING '$LinkTarget'"
+                }
+            
+                $Query = @"
+    ALTER SESSION SET CURRENT_SCHEMA=$SchemaName;
+    CREATE OR REPLACE PROCEDURE CREATE_DB_LINK AS
+	    begin
+		    execute immediate q'{$CreateCommand}';
+	    end CREATE_DB_LINK;
+    /
+    exec CREATE_DB_LINK;
+
+    DROP PROCEDURE CREATE_DB_LINK;
+"@
+        Write-Verbose $Query
+        Remove-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName -ErrorAction SilentlyContinue
+        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText
+        Test-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName
+            }
+        }
+    }
+}
+
+<#
+.Synopsis
+    Creates a DB link on the target database
+.DESCRIPTION
+
+.EXAMPLE
+
+.ROLE
+
+#>
+function Test-OracleDBLink {
+    [CmdletBinding()]
+    [Alias("test-dblink")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Schema Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="Onwer schema for the DB Link")]
+        [String]$SchemaName,
+        # DB Link Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="DB Link Name")]
+        [String]$LinkName
+    )
+    Process { 
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            }
+            $Query = @"
+ALTER SESSION SET CURRENT_SCHEMA=$SchemaName;
+CREATE OR REPLACE FUNCTION TEST_DB_LINK RETURN VARCHAR2 AS
+    v_result VARCHAR2(100);
+begin
+	SELECT 'CONNECTED TO '||global_name AS "TestResult" INTO v_result FROM global_name@$LinkName;
+    RETURN v_result;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN SQLERRM;
+end TEST_DB_LINK;
+/
+SELECT TEST_DB_LINK FROM dual;
+
+DROP FUNCTION TEST_DB_LINK;
+"@
+    Write-Verbose $Query
+    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -PlainText
+        }
+    }
+}
+
+
+<#
+.Synopsis
+    Creates a DB link on the target database
+.DESCRIPTION
+
+.EXAMPLE
+
+.ROLE
+
+#>
+function Remove-OracleDBLink {
+    [CmdletBinding()]
+    [Alias("rm-dblink")]
+    Param (
+        # Target Database
+        [Parameter(Mandatory=$true,
+            HelpMessage="Target Oracle Database name")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Schema Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="Onwer schema for the DB Link")]
+        [String]$SchemaName,
+        # DB Link Name
+        [Parameter(Mandatory=$true,
+            HelpMessage="DB Link Name")]
+        [String]$LinkName
+    )
+    Process { 
+        foreach ($DBName in $TargetDB) {
+            if (Test-OracleEnv) {
+                if ($PasswordPrompt) {
+                    if ($DBUser.Length -eq 0) {
+                        $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                    }
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
+            $Query = @"
+    ALTER SESSION SET CURRENT_SCHEMA=$SchemaName;
+    CREATE OR REPLACE PROCEDURE DROP_DB_LINK(P_NAME in varchar2) as
+	    begin
+		    execute immediate 'DROP DATABASE LINK '||P_NAME;
+	    end DROP_DB_LINK;
+    /
+    exec DROP_DB_LINK('$LinkName');
+
+    DROP PROCEDURE DROP_DB_LINK;
+"@
+        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText
+            }
+        }
+    }
+}
+
 <#
 .Synopsis
 
@@ -2000,9 +2218,11 @@ function Get-OraclePerfReports {
 .DESCRIPTION
     This function runs a SQL script on a Oracle Database and returns the output from the script
 .EXAMPLE
-    Run-OracleScript -TargetDB orcl -SQLScript 'C:\path\to\file.sql' -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+    Use-OracleDB -TargetDB orcl -SQLQuery "SELECT * FROM dba_tables WHERE owner = 'SYSMAN';" | Format-Table
 .EXAMPLE
-    Run-OracleScript -TargetDB <DB NAME> -SQLQuery "SELECT 1 FROM DUAL;" -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+    Use-OracleDB -TargetDB orcl -SQLScript 'C:\path\to\file.sql' -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
+.EXAMPLE
+    Use-OracleDB -TargetDB <DB NAME> -SQLQuery "SELECT 1 FROM DUAL;" -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
 .FUNCTIONALITY
     This cmdlet is mean to be used by Oracle DBAs to query databases or run scripts.
 #>
