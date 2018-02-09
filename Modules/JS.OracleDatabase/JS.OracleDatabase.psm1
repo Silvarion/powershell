@@ -1691,7 +1691,23 @@ function Add-OracleDBLink {
 "@
         Write-Verbose $Query
         Remove-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName -ErrorAction SilentlyContinue
-        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText
+        Write-Verbose $Query
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        [String]$ResultText=""
+        foreach ($line in $Output) {
+            if ($line -imatch "^ORA-") {
+                $ResultText = $line
+            } elseif ($line -imatch "successfully") {
+                $ResultText = "Creation successful!"
+            }
+        }
+        $ResultProps = [ordered]@{ 'DBName' = $DBName;
+            'SchemaName' = $SchemaName;
+            'LinkName' = $LinkName;
+            'TestResult' = $ResultText
+        }
+        $ResObj = New-Object -TypeName PSObject -Property $ResultProps
+        Write-Output $ResObj
         Test-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName
             }
         }
@@ -1753,12 +1769,28 @@ EXCEPTION
         RETURN SQLERRM;
 end TEST_DB_LINK;
 /
-SELECT TEST_DB_LINK FROM dual;
+SELECT TEST_DB_LINK AS "TestResult" FROM dual;
 
-DROP FUNCTION TEST_DB_LINK;
+--DROP FUNCTION TEST_DB_LINK;
 "@
-    Write-Verbose $Query
-    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -PlainText
+            Write-Verbose $Query
+            $Output = Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -PlainText *>&1
+            [String]$ResultText=""
+            foreach ($line in $Output) {
+                if ($line -imatch "^CONNECTED") {
+                    $ResultText = "$line "
+                } elseif ($line -imatch "^ORA-") {
+                    $ResultText = "TEST FAILED, check DB Link Target"
+                }
+            }
+            $ResultProps = [ordered]@{ 'DBName' = $DBName;
+                'SchemaName' = $SchemaName;
+                'LinkName' = $LinkName;
+                'LinkTarget' = Use-OracleDB -TargetDB $DBName -SQLQuery "SELECT host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');" | Select -ExpandProperty HOST
+                'TestResult' = $ResultText
+            }
+            $ResObj = New-Object -TypeName PSObject -Property $ResultProps
+            Write-Output $ResObj
         }
     }
 }
@@ -1821,7 +1853,22 @@ function Remove-OracleDBLink {
 
     DROP PROCEDURE DROP_DB_LINK;
 "@
-        Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        [String]$ResultText=""
+        foreach ($line in $Output) {
+            if ($line -imatch "^ORA-") {
+                $ResultText = $line
+            } elseif ($line -imatch "successfully") {
+                $ResultText = "Drop successful!"
+            }
+        }
+        $ResultProps = [ordered]@{ 'DBName' = $DBName;
+            'SchemaName' = $SchemaName;
+            'LinkName' = $LinkName;
+            'TestResult' = $ResultText
+        }
+        $ResObj = New-Object -TypeName PSObject -Property $ResultProps
+        Write-Output $ResObj
             }
         }
     }
