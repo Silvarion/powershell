@@ -251,10 +251,6 @@ function Get-OracleServices {
             ValueFromPipeline=$true)]
         # It can check several databases at once
         [String[]]$TargetDB,
-        # Swtich to get output as database name and a comma-separated list
-        [Switch]$List,
-        # Swtich to get output as table instead of lists
-        [Switch]$Table,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -276,9 +272,10 @@ function Get-OracleServices {
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             $Query = @'
-SELECT name AS "ServiceName"
-FROM v$active_services
-WHERE name NOT LIKE ('SYS%')
+SELECT srv.name AS "ServiceName", NVL2(asrv.name,'ACTIVE','INACTIVE') AS "ServiceStatus"
+FROM v$services srv
+LEFT OUTER JOIN v$active_services asrv ON srv.name = asrv.name
+WHERE srv.name NOT LIKE ('SYS%')
 ORDER BY 1;
 '@
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
@@ -1783,10 +1780,12 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
                     $ResultText = "TEST FAILED, check DB Link Target"
                 }
             }
+            $LinkData = Use-OracleDB -TargetDB $DBName -SQLQuery "SELECT username,host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');"
             $ResultProps = [ordered]@{ 'DBName' = $DBName;
                 'SchemaName' = $SchemaName;
                 'LinkName' = $LinkName;
-                'LinkTarget' = Use-OracleDB -TargetDB $DBName -SQLQuery "SELECT host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');" | Select -ExpandProperty HOST
+                'LinkUser' = $LinkData | Select -ExpandProperty USERNAME;
+                'LinkTarget' = $LinkData | Select -ExpandProperty HOST;
                 'TestResult' = $ResultText
             }
             $ResObj = New-Object -TypeName PSObject -Property $ResultProps
