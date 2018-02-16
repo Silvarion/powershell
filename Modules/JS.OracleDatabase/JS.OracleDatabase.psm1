@@ -272,9 +272,10 @@ function Get-OracleServices {
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             $Query = @'
-SELECT srv.name AS "ServiceName", NVL2(asrv.name,'ACTIVE','INACTIVE') AS "ServiceStatus"
+SELECT srv.name AS "ServiceName", NVL2(asrv.name,'ACTIVE','INACTIVE') AS "ServiceStatus", dsv.edition AS "EditionName"
 FROM v$services srv
 LEFT OUTER JOIN v$active_services asrv ON srv.name = asrv.name
+JOIN dba_services dsv ON srv.name = dsv.name
 WHERE srv.name NOT LIKE ('SYS%')
 ORDER BY 1;
 '@
@@ -1770,7 +1771,7 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
 
 --DROP FUNCTION TEST_DB_LINK;
 "@
-            Write-Verbose $Query
+            #Write-Verbose $Query
             $Output = Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -PlainText *>&1
             [String]$ResultText=""
             foreach ($line in $Output) {
@@ -1780,7 +1781,7 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
                     $ResultText = "TEST FAILED, check DB Link Target"
                 }
             }
-            $LinkData = Use-OracleDB -TargetDB $DBName -SQLQuery "SELECT username,host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');"
+            $LinkData = Use-OracleDB -TargetDB $TargetDB -SQLQuery "SELECT username,host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');"
             $ResultProps = [ordered]@{ 'DBName' = $DBName;
                 'SchemaName' = $SchemaName;
                 'LinkName' = $LinkName;
@@ -1852,6 +1853,7 @@ function Remove-OracleDBLink {
 
     DROP PROCEDURE DROP_DB_LINK;
 "@
+    Write-Verbose $Query -Verbose
         $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
@@ -2446,7 +2448,7 @@ $SQLQuery
 "@
                     }
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running query on $DBName database..."
-                    if ($PlainText) { Write-Output "Running query on $DBName database..." }
+                    if ($PlainText) { Write-Output "Running query on $DBName database...`n$SQLQuery" }
                     $Output = @"
 $PipelineSettings
 $SQLQuery
