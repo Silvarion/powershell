@@ -51,7 +51,7 @@ function Test-OracleEnv {
         <Some commands>
     }
 .EXAMPLE
-    if (Ping-OracleDB -TargetDB orcl | Select -Property PingStatus) {
+    if (Ping-OracleDB -TargetDB orcl -Full | Select -Property PingStatus) {
         Write-Output "Database pinged successfully"
         <Some commands>
     } else {
@@ -69,32 +69,47 @@ function Ping-OracleDB {
         # It can check several databases at once
         [String[]]$TargetDB,
         # Flag to get full output or only boolean
-        [Switch]$Full
+        [Parameter(HelpMessage="Switch to get full output from the TNSPing Utility")]
+        [Switch]$Full,
+        # Parallelism degree desired
+        [Parameter(HelpMessage="Parallelism degree for background jobs")]
+        [int]$Parallelism = 1
     )
     Begin {
         if (-not (Test-OracleEnv)) {
-            Write-Logger -Critical "No ORACLE_HOME detected, please make sure your Oracle Environment is set"
+            Write-Error -Category NotInstalled -Message "No ORACLE_HOME detected, please make sure your Oracle Environment is set" -RecommendedAction "Please install the Oracle Client Software, at least, and/or define your ORACLE_HOME environment variable pointing to the Oracle Client binary files."
             exit
         }
     }
     Process {
-        foreach ($DBName in $TargetDB) {
-            if ($Full) {
-                $Pinged=$(tnsping $DBName)
-                $PingBool=$Pinged[-1].Contains('OK')
-                $DBProps= [ordered]@{
-                    [String]'DBName'=$DBName
-                    [String]'PingResult'=$Pinged[-1]
-                    [String]'Source'= $Pinged[-3]
-                    [String]'Descriptor' = $($Pinged[-2] -split "Attempting to contact ")[1]
-                    'PingStatus'=$PingBool
-                }
-                $DBObj = New-Object -TypeName PSObject -Property $DBProps
-                Write-Output $DBObj
-            } else {
-                $Pinged=$(tnsping $DBName)
-                $Pinged[-1].contains('OK')
-            }
+        $JobCount = 0
+        While ($TargetDB.GetLength() -gt 0 -or $(Get-Job | ? { $_.Name -match "PingJob"}).ChildJobs.Count -gt 0 ) {
+            if ($TargetDB.GetLength() -gt 0 -and $JobCount -lt $Parallelism) { # There are jobs in queue and open slots
+                $DBName = $TargetDB.Get(0)
+                $TargetDB.RemoveAt(0)
+                Start-Job -Name "TNSPing_$DBName" -ArgumentList $DBName -ScriptBlock { tnsping $1 } | Out-Null
+                $JobCount += 1
+            } # There are jobs in queue - End
+            if ($(Get-Job | ? { $_.Name -match "PingJob" -and $_.State -in @("Completed","Failed")}).ChildJobs.Count -gt 0) { # There are Completed jobs
+                foreach ($JobName in $(Get-Job | ? { $_.Name -match "PingJob" -and $_.State -in @("Completed","Failed") })) {
+                	$Pinged = Receive-Job $JobName
+                    if ($Full) { # Full Output Switch
+                        $PingBool=$Pinged[-1].Contains('OK')
+                        $DBProps= [ordered]@{
+                            [String]'DBName'=$DBName
+                            [String]'PingResult'=$Pinged[-1]
+                            [String]'Source'= $Pinged[-3]
+                            [String]'Descriptor' = $($Pinged[-2] -split "Attempting to contact ")[1]
+                            'PingStatus'=$PingBool
+                        }
+                        $DBObj = New-Object -TypeName PSObject -Property $DBProps
+                        Write-Output $DBObj
+                    } else { # Bool Output
+                        $Pinged[-1].contains('OK')
+                    } # EndIf - Full Output Switch
+                    $JobCount -= 1
+        		} # Job retrieval loop
+            } # EndIf - There are Completed Jobs
         }
     }
 }
@@ -933,8 +948,8 @@ function Get-OracleHosts {
             $Query = @'
 
 SELECT host_name AS "HostName"
-    , instance_name as "InstanceName" 
-FROM gv$instance 
+    , instance_name as "InstanceName"
+FROM gv$instance
 ORDER BY 1;
 '@
             foreach ($DBName in $TargetDB) {
@@ -1452,7 +1467,7 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
                 }
             }
         }
-    } 
+    }
 }
 
 <#
@@ -1648,7 +1663,7 @@ function Add-OracleDBLink {
             HelpMessage="DB Link target databasse name/descriptor")]
         [String]$LinkTarget
     )
-    Process { 
+    Process {
         if ($LinkPasswordPrompt) {
             $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $LinkUser at $LinkTarget"
             $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
@@ -1675,7 +1690,7 @@ function Add-OracleDBLink {
 "@ | Select -ExpandProperty LinkPass
                     $CreateCommand = "CREATE DATABASE LINK $LinkName CONNECT TO $LinkUser IDENTIFIED BY VALUES '$LinkPass' USING '$LinkTarget'"
                 }
-            
+
                 $Query = @"
     ALTER SESSION SET CURRENT_SCHEMA=$SchemaName;
     CREATE OR REPLACE PROCEDURE CREATE_DB_LINK AS
@@ -1745,7 +1760,7 @@ function Test-OracleDBLink {
             HelpMessage="DB Link Name")]
         [String]$LinkName
     )
-    Process { 
+    Process {
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
                 if ($DBUser.Length -eq 0) {
@@ -1831,7 +1846,7 @@ function Remove-OracleDBLink {
             HelpMessage="DB Link Name")]
         [String]$LinkName
     )
-    Process { 
+    Process {
         foreach ($DBName in $TargetDB) {
             if (Test-OracleEnv) {
                 if ($PasswordPrompt) {
