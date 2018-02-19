@@ -72,6 +72,9 @@ function Ping-OracleDB {
         [Parameter(HelpMessage="Switch to get full output from the TNSPing Utility")]
         [Switch]$Full,
         # Parallelism degree desired
+        [Parameter(HelpMessage="Job timeout without output")]
+        [int]$Timeout = 15,
+        # Parallelism degree desired
         [Parameter(HelpMessage="Parallelism degree for background jobs")]
         [int]$Parallelism = 1
     )
@@ -80,36 +83,76 @@ function Ping-OracleDB {
             Write-Error -Category NotInstalled -Message "No ORACLE_HOME detected, please make sure your Oracle Environment is set" -RecommendedAction "Please install the Oracle Client Software, at least, and/or define your ORACLE_HOME environment variable pointing to the Oracle Client binary files."
             exit
         }
+        #Remove previous Jobs
+        Stop-Job * -ErrorAction SilentlyContinue
+        Remove-job * -ErrorAction SilentlyContinue -Force
     }
     Process {
         $JobCount = 0
-        While ($TargetDB.GetLength() -gt 0 -or $(Get-Job | ? { $_.Name -match "PingJob"}).ChildJobs.Count -gt 0 ) {
-            if ($TargetDB.GetLength() -gt 0 -and $JobCount -lt $Parallelism) { # There are jobs in queue and open slots
-                $DBName = $TargetDB.Get(0)
-                $TargetDB.RemoveAt(0)
-                Start-Job -Name "TNSPing_$DBName" -ArgumentList $DBName -ScriptBlock { tnsping $1 } | Out-Null
+        $JobTimer=@{}
+        $JobLog=@{}
+        [System.Collections.ArrayList]$TargetQueue = $TargetDB
+        $JobTimeOut = [timespan]::FromSeconds($Timeout)
+        While ($($TargetQueue.Count) -gt 0 -or $(Get-Job | ? { $_.Name -match "TNSPing_"}).ChildJobs.Count -gt 0 ) {
+            Write-Verbose "Database Queue: $TargetQueue | Jobs: $JobCount | Running: $($(Get-Job | ? { $_.Name -match "TNSPing_" -and $_.State -eq "Running" }).ChildJobs.Count)"
+            if ($($TargetQueue.Count) -gt 0 -and $JobCount -lt $Parallelism) { # There are jobs in queue and open slots
+                $DBName = $TargetQueue[0]
+                $TargetQueue.Remove($DBName)
+                Write-Verbose "Start-Job -Name `"TNSPing_$DBName`" -ArgumentList $DBName -ScriptBlock { tnsping `$args[0] } | Out-Null"
+                Start-Job -Name "TNSPing_$DBName" -ArgumentList $DBName -ScriptBlock { tnsping $args[0] } | Out-Null
                 $JobCount += 1
             } # There are jobs in queue - End
-            if ($(Get-Job | ? { $_.Name -match "PingJob" -and $_.State -in @("Completed","Failed")}).ChildJobs.Count -gt 0) { # There are Completed jobs
-                foreach ($JobName in $(Get-Job | ? { $_.Name -match "PingJob" -and $_.State -in @("Completed","Failed") })) {
-                	$Pinged = Receive-Job $JobName
+            Write-Progress -Activity "TNSPing" -CurrentOperation "Checking Completed/Failed Jobs"
+            foreach ($JobName in $(Get-Job | ? { $_.Name -match "TNSPing_" -and $_.State -in @("Completed","Failed") })) { # There are Completed jobs
+                $Pinged = Receive-Job $JobName.Name -AutoRemoveJob -Wait 
+                Write-Verbose "Received completed job: $($JobName.Name)"
+                if ($([String]$Pinged).Length -gt 0) {
                     if ($Full) { # Full Output Switch
-                        $PingBool=$Pinged[-1].Contains('OK')
-                        $DBProps= [ordered]@{
-                            [String]'DBName'=$DBName
+                        $DBProps = [ordered]@{
+                            [String]'DBName'=$($($JobName.Name) -split '_')[1]
                             [String]'PingResult'=$Pinged[-1]
                             [String]'Source'= $Pinged[-3]
                             [String]'Descriptor' = $($Pinged[-2] -split "Attempting to contact ")[1]
-                            'PingStatus'=$PingBool
+                            'PingStatus'=$Pinged[-1].contains('OK')
                         }
                         $DBObj = New-Object -TypeName PSObject -Property $DBProps
                         Write-Output $DBObj
                     } else { # Bool Output
                         $Pinged[-1].contains('OK')
                     } # EndIf - Full Output Switch
-                    $JobCount -= 1
-        		} # Job retrieval loop
-            } # EndIf - There are Completed Jobs
+                }
+                $JobCount -= 1
+        	} # Job retrieval loop
+            Write-Progress -Activity "TNSPing" -CurrentOperation "Checking Running Jobs"
+            foreach ($JobInProgress in Get-Job "TNSPing_*" | ? { $_.State -eq 'Running' } ) { # There are Running jobs
+                #Write-Verbose "Analizing $($JobInProgress.Name) Job in State $($JobInProgress.State)"
+                $JobOutput = Receive-Job $JobInProgress -Keep
+                Write-Verbose "Job Outoput: $([String]$JobOutput)"
+                Write-Verbose "Timer contents: $($JobLog[$JobInProgress])"
+                if ($($JobOutput) -eq $($JobLog[$JobInProgress])) { # If output has not changed since last check
+                    if ($JobTimer[$JobInProgress]) { # If there's a timer
+                        if (($(Get-Date) - $JobTimer[$JobInProgress]) -gt $JobTimeOut) { # If job timed out
+                            Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) hung... Restarting!"
+                            Stop-Job -Name "$($JobInProgress.Name)"
+                            Remove-Job -Name "$($JobInProgress.Name)"
+                            Write-Verbose "$($($($JobInProgress.Name) -split '_')[1])"
+                            $TargetQueue.Add($($($($JobInProgress.Name) -split '_')[1]))
+                            $JobCount -= 1
+                        } else { # If job has not timed out
+                            if (($(Get-Date) - $($JobTimer[$JobInProgress])) -in @(5,10) ) {
+                                Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) can be hung..."
+                            }
+                        }
+                    } else { # If there's no timer jet
+                        $JobTimer[$JobInProgress] = $(Get-Date)
+                        $JobLog[$JobInProgress] = $JobOutput
+                    }
+                } else { #If output changed sine last check, update timer
+                    $JobTimer[$JobInProgress] = $(Get-Date)
+                    $JobLog[$JobInProgress] = $JobOutput
+                }
+            } # There are Running jobs - End
+            Start-Sleep 0.5
         }
     }
 }
@@ -946,7 +989,6 @@ function Get-OracleHosts {
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
             $Query = @'
-
 SELECT host_name AS "HostName"
     , instance_name as "InstanceName"
 FROM gv$instance
@@ -1130,13 +1172,9 @@ SELECT dbid FROM v$database;
 
 <#
 .Synopsis
-
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
@@ -1220,13 +1258,9 @@ EXIT
 
 <#
 .Synopsis
-
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
@@ -1307,11 +1341,8 @@ EXIT
 .Synopsis
     Returns Long running queries as per Schemas and SecondsLimit parameters
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleLongOperations {
     [CmdletBinding()]
@@ -1389,11 +1420,8 @@ AND l.serial# = s.serial#;
 .Synopsis
     Returns Long running queries as per Schemas and SecondsLimit parameters
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleLongRunQueries {
     [CmdletBinding()]
@@ -1474,11 +1502,8 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 .Synopsis
     Returns SQL Id, Text and bind variables of a given SQL Id
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleSQLText {
     [CmdletBinding()]
@@ -1547,11 +1572,8 @@ AND
 .Synopsis
     Returns SQL Id, Text and bind variables of a given SQL Id
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleDBVersion {
     [CmdletBinding()]
@@ -1617,11 +1639,8 @@ WHERE ROWNUM = 1;
 .Synopsis
     Creates a DB link on the target database
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Add-OracleDBLink {
     [CmdletBinding()]
@@ -1699,7 +1718,6 @@ function Add-OracleDBLink {
 	    end CREATE_DB_LINK;
     /
     exec CREATE_DB_LINK;
-
     DROP PROCEDURE CREATE_DB_LINK;
 "@
         Write-Verbose $Query
@@ -1731,11 +1749,8 @@ function Add-OracleDBLink {
 .Synopsis
     Creates a DB link on the target database
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Test-OracleDBLink {
     [CmdletBinding()]
@@ -1783,7 +1798,6 @@ EXCEPTION
 end TEST_DB_LINK;
 /
 SELECT TEST_DB_LINK AS "TestResult" FROM dual;
-
 --DROP FUNCTION TEST_DB_LINK;
 "@
             #Write-Verbose $Query
@@ -1815,11 +1829,8 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
 .Synopsis
     Creates a DB link on the target database
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Remove-OracleDBLink {
     [CmdletBinding()]
@@ -1865,7 +1876,6 @@ function Remove-OracleDBLink {
 	    end DROP_DB_LINK;
     /
     exec DROP_DB_LINK('$LinkName');
-
     DROP PROCEDURE DROP_DB_LINK;
 "@
     Write-Verbose $Query -Verbose
@@ -1892,13 +1902,9 @@ function Remove-OracleDBLink {
 
 <#
 .Synopsis
-
 .DESCRIPTION
-
 .EXAMPLE
-
 .ROLE
-
 #>
 function Get-OracleADDMInstanceReport {
     [CmdletBinding()]
@@ -1979,13 +1985,9 @@ EXIT
 
 <#
 .Synopsis
-
 .DESCRIPTION
-
 .EXAMPLE
-
 .FUNCTIONALITY
-
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
@@ -2058,13 +2060,9 @@ EXIT
 
 <#
 .Synopsis
-
 .DESCRIPTION
-
 .EXAMPLE
-
 .FUNCTIONALITY
-
 #>
 function Get-OracleAWRInstanceReport {
     [CmdletBinding()]
