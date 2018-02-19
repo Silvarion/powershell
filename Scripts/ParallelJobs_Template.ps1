@@ -15,8 +15,8 @@ foreach ($t in $Type) {
 }
 $JobTimer = @{}
 $JobTimeOut = [timespan]::FromSeconds(180)
-while ($(Get-Job -Name "*OID").ChildJobs.Count -gt 0) {
-    foreach ($JobInProgress in Get-Job "*OID" | ? { $_.State -eq 'Running' } ) {
+while ($(Get-Job -Name "JobPattern").ChildJobs.Count -gt 0) {
+    foreach ($JobInProgress in Get-Job "JobPattern" | ? { $_.State -eq 'Running' } ) {
         $JobOutput = Receive-Job $JobInProgress
         if ($([String]$JobOutput).Length -eq 0) {
             if ($JobTimer[$JobInProgress]) {
