@@ -24,7 +24,7 @@ if (Test-OracleEnv) {
 #>
 function Test-OracleEnv {
     [CmdletBinding()]
-    [Alias("oratest")]
+    [Alias("ora-test")]
     [OutputType([boolean])]
     Param()
     Process {
@@ -62,7 +62,7 @@ function Test-OracleEnv {
 #>
 function Ping-OracleDB {
     [CmdletBinding()]
-    [Alias("oraping")]
+    [Alias("ora-ping")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -136,7 +136,7 @@ function Ping-OracleDB {
                             Stop-Job -Name "$($JobInProgress.Name)"
                             Remove-Job -Name "$($JobInProgress.Name)"
                             Write-Verbose "$($($($JobInProgress.Name) -split '_')[1])"
-                            $TargetQueue.Add($($($($JobInProgress.Name) -split '_')[1]))
+                            $TargetQueue.Add($($($($JobInProgress.Name) -split '_')[1])) | Out-Null
                             $JobCount -= 1
                         } else { # If job has not timed out
                             if (($(Get-Date) - $($JobTimer[$JobInProgress])) -in @(5,10) ) {
@@ -169,7 +169,7 @@ function Ping-OracleDB {
 #>
 function Get-OracleDBInfo {
     [CmdletBinding()]
-    [Alias("orainfo")]
+    [Alias("ora-info")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
@@ -293,6 +293,95 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
 
 <#
 .Synopsis
+   Returns the Objects in an Oracle DB
+.DESCRIPTION
+   This function returns the Active Services in an Oracle DB
+.EXAMPLE
+    Get-OracleSessions -TargetDB myorcl -Username myDBAccount
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+#>
+function Get-OracleObjects {
+    [CmdletBinding()]
+    [Alias("ora-objects")]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB,
+        # SQL filter to add in the WHERE section of the query
+        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [String]$SQLFilter,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Password if required
+        [String]$DBPass,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
+    )
+    Begin {
+    }
+    Process {
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            }
+            if ($SQLFilter) {
+                if ($Query -contains "WHERE") {
+                    if ($SQLFilter -match "^WHERE") {
+                        $SQLFilter = $SQLFilter.Replace("WHERE","AND")
+                    } else {
+                        Write-Verbose "Filter is good"
+                    }
+
+                } else {
+
+                Write-Verbose "No WHERE in the query"
+                    if ($SQLFilter -match "^WHERE") {
+                        Write-Verbose "Filter is good"
+                    } else {
+                        if ($SQLFilter -match "^AND") {
+                            $SQLFilter = $SQLFilter.Replace("AND","WHERE")
+                        } else {
+                            $SQLFilter = "WHERE $SQLFilter"
+                        }
+                    }
+                }
+            }
+            $Query = @"
+SELECT object_type AS "ObjectType"
+    , owner AS "ObjectOwner"
+    , object_name AS "ObjectName"
+    , status AS "Status"
+    , created AS "Created"
+    , last_ddl_time AS "LastDDL"
+    , edition_name AS "Edition"
+FROM dba_objects_ae
+$SQLFilter;
+"@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                if ($DBUser) {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                } else {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                }
+            }
+
+            Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "$DBName done" -PercentComplete 85
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
+    }
+}
+
+<#
+.Synopsis
    Returns the Active Services in an Oracle DB
 .DESCRIPTION
    This function returns the Active Services in an Oracle DB
@@ -303,7 +392,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
 #>
 function Get-OracleServices {
     [CmdletBinding()]
-    [Alias("orasrvc")]
+    [Alias("ora-servcices")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -330,7 +419,7 @@ function Get-OracleServices {
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             $Query = @'
-SELECT srv.name AS "ServiceName", NVL2(asrv.name,'ACTIVE','INACTIVE') AS "ServiceStatus", dsv.edition AS "EditionName"
+SELECT srv.name AS "ServiceName", NVL2(asrv.name,'ACTIVE','INACTIVE') AS "Status", dsv.edition AS "EditionName"
 FROM v$services srv
 LEFT OUTER JOIN v$active_services asrv ON srv.name = asrv.name
 JOIN dba_services dsv ON srv.name = dsv.name
@@ -352,7 +441,7 @@ ORDER BY 1;
                 } else {
                     $LoginString = "/@$DBName"
                 }
-                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
                 } else {
@@ -363,7 +452,6 @@ ORDER BY 1;
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
-
 <#
 .Synopsis
    Returns the Sessions in an Oracle DB
@@ -376,7 +464,7 @@ ORDER BY 1;
 #>
 function Get-OracleSessions {
     [CmdletBinding()]
-    [Alias("orasession")]
+    [Alias("ora-sessions")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -440,14 +528,14 @@ FROM gv`$session
 $SQLFilter;
 "@
             foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
             }
-            Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "$DBName done" -PercentComplete 85
+            Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -464,7 +552,7 @@ $SQLFilter;
 #>
 function Get-OracleSize {
     [CmdletBinding()]
-    [Alias("orasize")]
+    [Alias("ora-size")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -712,7 +800,7 @@ ORDER BY DB_NAME;
 #>
 function Get-OracleOptions {
     [CmdletBinding()]
-    [Alias("oraoptions")]
+    [Alias("ora-options")]
     [OutputType([String[]])]
     Param (
         [Parameter(Mandatory=$true,
@@ -763,9 +851,9 @@ ORDER BY 1;
 
 <#
 .Synopsis
-    Query an Oracle database to get global name, host name, db unique name and
+    Query an Oracle database to get global name, host name, db unique name and instance name
 .DESCRIPTION
-    This function returns the global name of the database
+    This function returns the hostname, instance name, global name and unique name of the database
 .EXAMPLE
     Get-OracleGlobalName -TargetDB <DB NAME> [-ErrorLog]
 .ROLE
@@ -773,7 +861,7 @@ ORDER BY 1;
 #>
 function Get-OracleNames {
     [CmdletBinding()]
-    [Alias("oranames")]
+    [Alias("ora-names")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -887,7 +975,7 @@ exit
 #>
 function Get-OracleInstances {
     [CmdletBinding()]
-    [Alias("orainst")]
+    [Alias("ora-instances")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -957,7 +1045,7 @@ exit
 #>
 function Get-OracleHosts {
     [CmdletBinding()]
-    [Alias("orahost")]
+    [Alias("ora-hosts")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -1027,7 +1115,7 @@ ORDER BY 1;
 #>
 function Get-OracleUsers {
     [CmdletBinding()]
-    [Alias("orauser")]
+    [Alias("ora-users")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -1123,7 +1211,7 @@ $SQLFilter;
 #>
 function Get-OracleDBID {
     [CmdletBinding()]
-    [Alias("oradbid")]
+    [Alias("ora-dbid")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -1178,7 +1266,7 @@ SELECT dbid FROM v$database;
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
-    [Alias("orasnap")]
+    [Alias("ora-snapshot")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -1264,7 +1352,7 @@ EXIT
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
-    [Alias("orasnaptime")]
+    [Alias("ora-snaptime")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -1346,7 +1434,7 @@ EXIT
 #>
 function Get-OracleLongOperations {
     [CmdletBinding()]
-    [Alias("oralongops")]
+    [Alias("ora-longops")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1425,7 +1513,7 @@ AND l.serial# = s.serial#;
 #>
 function Get-OracleLongRunQueries {
     [CmdletBinding()]
-    [Alias("oralongsql")]
+    [Alias("ora-longsql")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1507,7 +1595,7 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 #>
 function Get-OracleSQLText {
     [CmdletBinding()]
-    [Alias("orasqltxt")]
+    [Alias("ora-sqltxt")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1577,7 +1665,7 @@ AND
 #>
 function Get-OracleDBVersion {
     [CmdletBinding()]
-    [Alias("oraversion")]
+    [Alias("ora-version")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1644,7 +1732,7 @@ WHERE ROWNUM = 1;
 #>
 function Add-OracleDBLink {
     [CmdletBinding()]
-    [Alias("add-dblink")]
+    [Alias("ora-addlink")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1720,14 +1808,14 @@ function Add-OracleDBLink {
     exec CREATE_DB_LINK;
     DROP PROCEDURE CREATE_DB_LINK;
 "@
-        Write-Verbose $Query
+        #Write-Verbose $Query
         Remove-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName -ErrorAction SilentlyContinue
-        Write-Verbose $Query
+        #Write-Verbose $Query
         $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
             if ($line -imatch "^ORA-") {
-                $ResultText = $line
+                $ResultText += " $line"
             } elseif ($line -imatch "successfully") {
                 $ResultText = "Creation successful!"
             }
@@ -1754,7 +1842,7 @@ function Add-OracleDBLink {
 #>
 function Test-OracleDBLink {
     [CmdletBinding()]
-    [Alias("test-dblink")]
+    [Alias("ora-testlink")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1798,7 +1886,7 @@ EXCEPTION
 end TEST_DB_LINK;
 /
 SELECT TEST_DB_LINK AS "TestResult" FROM dual;
---DROP FUNCTION TEST_DB_LINK;
+DROP FUNCTION TEST_DB_LINK;
 "@
             #Write-Verbose $Query
             $Output = Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -PlainText *>&1
@@ -1811,7 +1899,7 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
                 }
             }
             $LinkData = Use-OracleDB -TargetDB $TargetDB -SQLQuery "SELECT username,host FROM dba_db_links WHERE owner = UPPER('$SchemaName') AND db_link = UPPER('$LinkName');"
-            $ResultProps = [ordered]@{ 'DBName' = $DBName;
+            $ResultProps = [ordered]@{ 'DBName' = $TargetDB;
                 'SchemaName' = $SchemaName;
                 'LinkName' = $LinkName;
                 'LinkUser' = $LinkData | Select -ExpandProperty USERNAME;
@@ -1834,7 +1922,7 @@ SELECT TEST_DB_LINK AS "TestResult" FROM dual;
 #>
 function Remove-OracleDBLink {
     [CmdletBinding()]
-    [Alias("rm-dblink")]
+    [Alias("ora-droplink")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1878,7 +1966,7 @@ function Remove-OracleDBLink {
     exec DROP_DB_LINK('$LinkName');
     DROP PROCEDURE DROP_DB_LINK;
 "@
-    Write-Verbose $Query -Verbose
+        #Write-Verbose $Query
         $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
@@ -1908,7 +1996,7 @@ function Remove-OracleDBLink {
 #>
 function Get-OracleADDMInstanceReport {
     [CmdletBinding()]
-    [Alias("oraaddm")]
+    [Alias("ora-addm")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -1991,7 +2079,7 @@ EXIT
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
-    [Alias("oraawr")]
+    [Alias("ora-awr")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -2066,7 +2154,7 @@ EXIT
 #>
 function Get-OracleAWRInstanceReport {
     [CmdletBinding()]
-    [Alias("oraawrisnt")]
+    [Alias("ora-awrinst")]
     Param (
         # Target Database
         [Parameter(Mandatory=$true,
@@ -2152,7 +2240,7 @@ EXIT
 function Get-OraclePerfReports {
     [CmdletBinding(
     SupportsShouldProcess=$true)]
-    [Alias("oraperf")]
+    [Alias("ora-performance")]
     Param (
         # This can be a list of databases
         [Parameter(Mandatory=$true,
@@ -2291,7 +2379,7 @@ function Use-OracleDB {
     [CmdletBinding(
         DefaultParameterSetName='BySQLQuery',
         SupportsShouldProcess=$true)]
-    [Alias("oraquery")]
+    [Alias("ora-query")]
     Param (
         # It can run the script on several databases at once
         [Parameter(Mandatory=$true,
@@ -2420,7 +2508,13 @@ SET COLSEP '|'
                 $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-            }
+            }        
+            # Parallelism implementation
+            $JobCount = 0
+            $JobTimer=@{}
+            $JobLog=@{}
+            [System.Collections.ArrayList]$TargetQueue = $TargetDB
+            $JobTimeOut = [timespan]::FromSeconds($Timeout)
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                 if ($DBUser) {
@@ -2480,12 +2574,12 @@ exit;
                             Write-Warning "$Line"
                         } else {
                             Write-Verbose "Query: $SQLQuery"
-                            $HeaderLine = $SQLQuery.Replace("`n"," ")
-                            $HeaderLine = $HeaderLine.Replace("(","").Replace(")","")
-                            $HeaderLine = $($HeaderLine -split "select")[1]
-                            $HeaderLine = $($HeaderLine -split "from")[0]
-                            $HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT(","").Replace("COUNT(","")
-                            $HeaderLine = $HeaderLine.Replace(",","|")
+                            [String]$HeaderLine = $SQLQuery.Replace("`n"," ")
+                            [String]$HeaderLine = $HeaderLine.Replace("(","").Replace(")","")
+                            [String]$HeaderLine = $($HeaderLine -split "select")[1]
+                            [String]$HeaderLine = $($HeaderLine -split "from")[0]
+                            [String]$HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT(","").Replace("COUNT(","")
+                            [String]$HeaderLine = $HeaderLine.Replace(",","|")
                             Write-Verbose "HeaderLine: $HeaderLine"
                             $DBProps = @{ 'DBName' = [String]$DBName }
                             $ResObj = New-Object -TypeName PSObject -Property $DBProps
@@ -2596,7 +2690,7 @@ exit;
 function Remove-OracleSchema {
     [CmdletBinding(
         SupportsShouldProcess=$true)]
-    [Alias("oradrop")]
+    [Alias("ora-dropschema")]
     Param (
     [Parameter(Mandatory = $true)]
     [String[]] $TargetDB,
@@ -2696,7 +2790,7 @@ function Remove-OracleSchema {
 
 function Test-OracleHealth {
     [CmdletBinding()]
-    [Alias("orahealth")]
+    [Alias("ora-health")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
