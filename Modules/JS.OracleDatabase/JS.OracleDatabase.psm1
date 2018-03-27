@@ -181,6 +181,9 @@ function Get-OracleDBInfo {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -191,7 +194,11 @@ function Get-OracleDBInfo {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -316,7 +323,8 @@ function Get-OracleObjects {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -329,7 +337,11 @@ function Get-OracleObjects {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -392,7 +404,7 @@ $SQLFilter;
 #>
 function Get-OracleServices {
     [CmdletBinding()]
-    [Alias("ora-servcices")]
+    [Alias("ora-services")]
     Param (
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true)]
@@ -402,7 +414,8 @@ function Get-OracleServices {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -413,7 +426,11 @@ function Get-OracleServices {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -452,6 +469,7 @@ ORDER BY 1;
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
+
 <#
 .Synopsis
    Returns the Sessions in an Oracle DB
@@ -477,7 +495,8 @@ function Get-OracleSessions {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -490,7 +509,11 @@ function Get-OracleSessions {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -562,7 +585,8 @@ function Get-OracleSize {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -594,7 +618,11 @@ function Get-OracleSize {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -810,6 +838,9 @@ function Get-OracleOptions {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -820,7 +851,11 @@ function Get-OracleOptions {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -873,6 +908,9 @@ function Get-OracleNames {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -887,7 +925,11 @@ function Get-OracleNames {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -986,6 +1028,9 @@ function Get-OracleInstances {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1002,7 +1047,11 @@ function Get-OracleInstances {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1056,6 +1105,9 @@ function Get-OracleHosts {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1072,7 +1124,11 @@ function Get-OracleHosts {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1129,6 +1185,9 @@ function Get-OracleUsers {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1145,7 +1204,11 @@ function Get-OracleUsers {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1222,6 +1285,9 @@ function Get-OracleDBID {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1236,7 +1302,11 @@ function Get-OracleDBID {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1277,6 +1347,9 @@ function Get-OracleSnapshot {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1300,7 +1373,11 @@ function Get-OracleSnapshot {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1361,6 +1438,9 @@ function Get-OracleSnapshotTime {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1387,7 +1467,11 @@ function Get-OracleSnapshotTime {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1445,6 +1529,9 @@ function Get-OracleLongOperations {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1475,7 +1562,11 @@ function Get-OracleLongOperations {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1524,6 +1615,9 @@ function Get-OracleLongRunQueries {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1554,7 +1648,11 @@ function Get-OracleLongRunQueries {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1614,7 +1712,8 @@ function Get-OracleSQLText {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1678,7 +1777,8 @@ function Get-OracleDBVersion {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1694,7 +1794,11 @@ function Get-OracleDBVersion {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1741,6 +1845,9 @@ function Add-OracleDBLink {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1782,7 +1889,11 @@ function Add-OracleDBLink {
                     if ($DBUser.Length -eq 0) {
                         $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                     }
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
                     $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                     $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
                 }
@@ -1851,6 +1962,9 @@ function Test-OracleDBLink {
         # Username if required
         [Alias("u")]
         [String]$DBUser,
+        # Password if required
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1869,7 +1983,11 @@ function Test-OracleDBLink {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -1932,7 +2050,8 @@ function Remove-OracleDBLink {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -1952,7 +2071,11 @@ function Remove-OracleDBLink {
                     if ($DBUser.Length -eq 0) {
                         $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                     }
-                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    if ($DBPass) {
+                        $SecurePass = $DBPass
+                    } else {
+                        $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    }
                     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                     $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
                 }
@@ -2006,7 +2129,8 @@ function Get-OracleADDMInstanceReport {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2037,7 +2161,11 @@ function Get-OracleADDMInstanceReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -2089,7 +2217,8 @@ function Get-OracleAWRReport {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2116,7 +2245,11 @@ function Get-OracleAWRReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -2164,7 +2297,8 @@ function Get-OracleAWRInstanceReport {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2195,7 +2329,11 @@ function Get-OracleAWRInstanceReport {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -2252,7 +2390,8 @@ function Get-OraclePerfReports {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2290,7 +2429,11 @@ function Get-OraclePerfReports {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
@@ -2392,7 +2535,8 @@ function Use-OracleDB {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
@@ -2505,7 +2649,11 @@ SET COLSEP '|'
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }        
@@ -2800,7 +2948,8 @@ function Test-OracleHealth {
         [Alias("u")]
         [String]$DBUser,
         # Password if required
-        [String]$DBPass,
+        [Parameter(HelpMessage = "Must be a secure string as in: Read-Host -AsSecureString")]
+        [System.Runtime.InteropServices.Marshal]$DBPass,
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt
@@ -2811,7 +2960,11 @@ function Test-OracleHealth {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
