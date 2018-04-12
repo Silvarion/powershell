@@ -390,6 +390,98 @@ $SQLFilter;
 .Synopsis
    Returns the Objects in an Oracle DB
 .DESCRIPTION
+   This function returns the Active Services in an Oracle DB
+.EXAMPLE
+    Get-OracleSessions -TargetDB myorcl -Username myDBAccount
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+#>
+function Get-OraclePrivileges {
+    [CmdletBinding()]
+    [Alias("ora-privs")]
+    Param (
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true)]
+        # It can check several databases at once
+        [String[]]$TargetDB,
+        # SQL filter to add in the WHERE section of the query
+        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [String]$SQLFilter,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt
+    )
+    Begin {
+    }
+    Process {
+        if (Test-OracleEnv) {
+            if ($PasswordPrompt) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                if ($DBPass) {
+                    $SecurePass = $DBPass
+                } else {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            }
+            if ($SQLFilter) {
+                if ($Query -contains "WHERE") {
+                    if ($SQLFilter -match "^WHERE") {
+                        $SQLFilter = $SQLFilter.Replace("WHERE","AND")
+                    } else {
+                        Write-Verbose "Filter is good"
+                    }
+
+                } else {
+
+                Write-Verbose "No WHERE in the query"
+                    if ($SQLFilter -match "^WHERE") {
+                        Write-Verbose "Filter is good"
+                    } else {
+                        if ($SQLFilter -match "^AND") {
+                            $SQLFilter = $SQLFilter.Replace("AND","WHERE")
+                        } else {
+                            $SQLFilter = "WHERE $SQLFilter"
+                        }
+                    }
+                }
+            }
+            $Query = @"
+SELECT grantee AS "UserName", method AS "GrantMethod", privilege AS "Privilege"
+FROM (
+    SELECT NVL(drp.grantee,dsp.grantee) AS grantee, NVL(drp.granted_role,'-- DIRECT GRANT --') AS method, dsp.privilege AS privilege
+    FROM dba_sys_privs dsp
+    LEFT OUTER JOIN dba_role_privs drp
+      ON (dsp.grantee = drp.granted_role)
+)
+$SQLFilter
+ORDER BY 1,2,3;
+
+"@
+            foreach ($DBName in $TargetDB) {
+                Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "Querying $DBName..." -PercentComplete 25
+                if ($DBUser) {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                } else {
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                }
+            }
+
+            Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "$DBName done" -PercentComplete 85
+        } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
+    }
+}
+
+<#
+.Synopsis
+   Returns the Objects in an Oracle DB
+.DESCRIPTION
    This function returns the DB Links in an Oracle DB
 .EXAMPLE
     Get-OracleDBLinks -TargetDB myorcl -Username myDBAccount
@@ -628,6 +720,7 @@ SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
     , program AS "Program"
     , module AS "Module"
     , sql_id AS "RunningSqlId"
+    , sql_address AS "SqlAddress"
 FROM gv`$session
 $SQLFilter;
 "@
@@ -1442,30 +1535,26 @@ function Get-OracleSnapshot {
             }
             if ($Mark -eq "start") {
                 $StrTimeStamp = $TimeStamp.AddSeconds(50).ToString("yyyy-MM-dd HH:mm:ss")
-                Write-Debug $TimeStamp
                 # Using here-string to pipe the SQL query to SQL*Plus
-                @"
-SET HEADING OFF
-SET PAGESIZE 0
-SELECT max(snap_id)
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
+SELECT MAX(snap_id) AS "SnapshotId",
+    TO_CHAR(MAX(begin_interval_time),'YYYY-MM-DD HH24:MI:SS') AS "SnapshotTime"
 FROM dba_hist_snapshot
 WHERE begin_interval_time <= TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS')
 AND end_interval_time > TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS');
 EXIT
-"@ | &"sqlplus" "-S" "$LoginString"
+"@
             } else {
                 $StrTimeStamp = $TimeStamp.ToString("yyyy-MM-dd HH:mm:ss")
-                Write-Debug $TimeStamp
                 # Using here-string to pipe the SQL query to SQL*Plus
-                @"
-SET HEADING OFF
-SET PAGESIZE 0
-SELECT min(snap_id)
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery @"
+SELECT MIN(snap_id) AS "SnapshotId",
+    TO_CHAR(MAX(end_interval_time),'YYYY-MM-DD HH24:MI:SS') AS "SnapshotTime"
 FROM dba_hist_snapshot
 WHERE end_interval_time >= TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS')
 AND begin_interval_time < TO_TIMESTAMP('$StrTimeStamp','YYYY-MM-DD HH24:MI:SS');
 EXIT
-"@ | &"sqlplus" "-S" "$LoginString"
+"@
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1752,6 +1841,7 @@ function Get-OracleSQLText {
             Position=1,
             HelpMessage="Target Oracle Database name")]
         [String]$SqlId,
+        [String]$SQLFilter,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -1772,19 +1862,33 @@ function Get-OracleSQLText {
                 }
                 $DBPass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
             }
+            if ($SQLFilter) {
+                if ($Query -contains "WHERE") {
+                    if ($SQLFilter -match "^WHERE") {
+                        $SQLFilter = $SQLFilter.Replace("WHERE","AND")
+                    } else {
+                        Write-Verbose "Filter is good"
+                    }
+                } else {
+                Write-Verbose "No WHERE in the query"
+                    if ($SQLFilter -match "^AND") {
+                        Write-Verbose "Filter is good"
+                    } else {
+                        $SQLFilter = "AND $SQLFilter"
+                    }
+                }
+            }
             $Query = @"
-SELECT sql_id AS "SqlId"
-    , t.sql_text AS "SQLText"
+SELECT t.sql_id AS "SqlId"
+    , t.sql_fulltext AS "SQLText"
     , b.name AS "BindName"
     , b.value_string AS "BindValue"
 FROM
-  v`$sql t
-JOIN
-  v`$sql_bind_capture b  using (sql_id)
-WHERE
-  b.value_string is not null
-AND
-  sql_id='$SqlId'
+  gv`$sql t
+LEFT OUTER JOIN
+  gv`$sql_bind_capture b ON (t.inst_id = b.inst_id AND t.sql_id = b.sql_id)
+WHERE t.sql_id='$SqlId'
+  $SQLFilter
 ;
 "@
             if ($DBUser) {
@@ -2142,12 +2246,15 @@ function Remove-OracleDBLink {
 
 <#
 .Synopsis
+    This function generates ADDM Report for single instance and cluster databases
 .DESCRIPTION
+    This function generates ADDM Report for single instance and cluster databases
 .EXAMPLE
+    
 .ROLE
 #>
-function Get-OracleADDMInstanceReport {
-    [CmdletBinding()]
+function Get-OracleADDMReport {
+    [CmdletBinding(DefaultParameterSetName="Timestamps")]
     [Alias("ora-addm")]
     Param (
         # Target Database
@@ -2161,20 +2268,30 @@ function Get-OracleADDMInstanceReport {
         [Alias("p")]
         [Switch]$PasswordPrompt,
         # Target Database
-        [Parameter(Mandatory=$true,
-            HelpMessage="Target Oracle Instance name")]
-        [String]$Instance,
+        [Parameter(HelpMessage="Target Oracle Instance name")]
+        [String[]]$Instances,
         # This is the DBID of the target database
-        [Parameter(Mandatory=$true,
-            HelpMessage="Oracle Database ID")]
+        [Parameter(HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
+        # This is the starting time for the performance snapshot
+        [Parameter(Mandatory=$true,
+            ParameterSetName="Timestamps",
+            HelpMessage="Starting snapshot approximate time (YYYY-MM-DD HH24:MI:SS)")]
+        [datetime]$StartTime,
+        # This is the ending time for the performance snapshot
+        [Parameter(Mandatory=$true,
+            ParameterSetName="Timestamps",
+            HelpMessage="Ending snapshot approximate time (YYYY-MM-DD HH24:MI:SS)")]
+        [datetime]$EndTime,
         # This is the starting snapshot for the Report scope
         [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
+            ParameterSetName="Snapshots",
+            HelpMessage="Starting snapshot")]
         [bigint]$StartSnapshot,
         # This is the ending snapshot for the Report scope
         [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
+            ParameterSetName="Snapshots",
+            HelpMessage="Ending snapshot")]
         [bigint]$EndSnapshot,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
@@ -2200,24 +2317,55 @@ function Get-OracleADDMInstanceReport {
             } else {
                 $LoginString = "/@$TargetDB"
             }
-            $InstNumber = $Instance.Substring($Instance.Length-1)
-            Write-Verbose "Instance Number: $InstNumber"
-            # Using here-string to pipe the SQL query to SQL*Plus
-            $Output = @"
-define  db_name      = '$TargetDB';
+            # Pre-checks for required data
+            if ($Instances.Count -lt 1) {
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB
+            } else {
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | ? { $_.InstanceName -in $Instances }
+            }
+            $DBNames = Get-OracleNames -TargetDB $TargetDB
+            $PDB = $DBNAmes.GlobalName
+            $ContainerDB = $DBNames.UniqueName
+            if (!$DBID) {
+                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select -ExpandProperty DBID
+            }
+            if ($PSCmdlet.ParameterSetName -eq "Snapshots") {
+                if (!$StartSnapshot) {
+                    Read-Host -Prompt "Please enter the value for the start snapshot" -OutVariable $StartSnapshot
+                }
+                if (!$EndSnapshot) {
+                    Read-Host -Prompt "Please enter the value for the ending snapshot" -OutVariable $EndSnapshot
+                }
+            } elseif ($PSCmdlet.ParameterSetName -eq "Timestamps") {
+                if (!$StartTime) {
+                    Read-Host -Prompt "Please enter the value for the starting time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $StartTime
+                }
+                if (!$EndTime) {
+                    Read-Host -Prompt "Please enter the value for the ending time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $EndTime
+                }
+                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select -ExpandProperty SnapshotId
+                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select -ExpandProperty SnapshotId
+            } else {
+                Write-Error "You MUST use either Timestamps or Snapshots" -ErrorAction Stop
+            }
+            foreach ($i in $InstObjects) {
+                $InstNumber = $i.InstanceNumber
+                $InstName = $i.InstanceName
+                # Using here-string to pipe the SQL query to SQL*Plus
+                Use-OracleDB -TargetDB $ContainerDB -SQLQuery @"
+define  db_name      = '$PDB';
 define  dbid         = $DBID;
 define  inst_num     = $InstNumber;
-define  inst_name    = '$Instance';
+define  inst_name    = '$InstName';
 define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'addm_${Instance}_${StartSnapshot}_${EndSnapshot}_report.txt'
+define  report_name  = 'addm_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.txt'
 @@?/rdbms/admin/addmrpti.sql
 exit;
-EXIT
-"@ | &"sqlplus" "-S" "$LoginString"
-            Write-Debug "$Output"
+"@ -PlainText
+            }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -2246,16 +2394,30 @@ function Get-OracleAWRReport {
         [Alias("p")]
         [Switch]$PasswordPrompt,
         # This can be a list of databases
-        [Parameter(Mandatory=$true,
-            HelpMessage="Oracle Database ID")]
+        [Parameter(HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
+        # Instance flag
+        [Parameter(HelpMessage="Target Oracle Instance name")]
+        [Switch]$Instance,
+        # This is the starting time for the performance snapshot
+        [Parameter(Mandatory=$true,
+            ParameterSetName="Timestamps",
+            HelpMessage="Starting snapshot approximate time (YYYY-MM-DD HH24:MI:SS)")]
+        [datetime]$StartTime,
+        # This is the ending time for the performance snapshot
+        [Parameter(Mandatory=$true,
+            ParameterSetName="Timestamps",
+            HelpMessage="Ending snapshot approximate time (YYYY-MM-DD HH24:MI:SS)")]
+        [datetime]$EndTime,
         # This is the starting snapshot for the Report scope
         [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
+            ParameterSetName="Snapshots",
+            HelpMessage="Starting snapshot")]
         [bigint]$StartSnapshot,
         # This is the ending snapshot for the Report scope
         [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
+            ParameterSetName="Snapshots",
+            HelpMessage="Ending snapshot")]
         [bigint]$EndSnapshot,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
@@ -2280,104 +2442,70 @@ function Get-OracleAWRReport {
                 $LoginString = "${DBUser}/${DBPass}@$TargetDB"
             } else {
                 $LoginString = "/@$TargetDB"
+            }
+            # Pre-checks for required data
+            if ($Instance -and $Instances.Count -ge 1) {
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | ? { $_.InstanceName -in $Instances }
+            } else {
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB
+                $Global = $true
+            }
+            $DBNames = Get-OracleNames -TargetDB $TargetDB
+            $PDB = $DBNAmes.GlobalName
+            $ContainerDB = $DBNames.UniqueName
+            if (!$DBID) {
+                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select -ExpandProperty DBID
+            }
+            if ($PSCmdlet.ParameterSetName -eq "Snapshots") {
+                if (!$StartSnapshot) {
+                    Read-Host -Prompt "Please enter the value for the start snapshot" -OutVariable $StartSnapshot
+                }
+                if (!$EndSnapshot) {
+                    Read-Host -Prompt "Please enter the value for the ending snapshot" -OutVariable $EndSnapshot
+                }
+            } elseif ($PSCmdlet.ParameterSetName -eq "Timestamps") {
+                if (!$StartTime) {
+                    Read-Host -Prompt "Please enter the value for the starting time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $StartTime
+                }
+                if (!$EndTime) {
+                    Read-Host -Prompt "Please enter the value for the ending time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $EndTime
+                }
+                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select -ExpandProperty SnapshotId
+                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select -ExpandProperty SnapshotId
+            } else {
+                Write-Error "You MUST use either Timestamps or Snapshots" -ErrorAction Stop
             }
 			Write-Output "Launching AWR Global Report"
+            if ($Global) {
             # Using here-string to pipe the SQL query to SQL*Plus
-            @"
-define  db_name      = '$TargetDB';
+            Use-oracleDB -TargetDB $ContainerDB -SQLQuery @"
+define  db_name      = '$PDB';
 define  dbid         = $DBID;
 define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'awr_${TargetDB}_${StartSnapshot}_${EndSnapshot}_global_report.html'
+define  report_name  = 'awr_${PDB}_${StartSnapshot}_${EndSnapshot}_global_report.html'
 @@?/rdbms/admin/awrgrpt.sql
 exit;
-EXIT
-"@ | &"sqlplus" "-S" "$LoginString"
-        } else {
-            Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
-        }
-    }
-    End{}
-}
-
-<#
-.Synopsis
-.DESCRIPTION
-.EXAMPLE
-.FUNCTIONALITY
-#>
-function Get-OracleAWRInstanceReport {
-    [CmdletBinding()]
-    [Alias("ora-awrinst")]
-    Param (
-        # Target Database
-        [Parameter(Mandatory=$true,
-            HelpMessage="Target Oracle Database name")]
-        [String]$TargetDB,
-        # Username if required
-        [Alias("u")]
-        [String]$DBUser,
-        # Flag to ask for a password
-        [Alias("p")]
-        [Switch]$PasswordPrompt,
-        # Target Database
-        [Parameter(Mandatory=$true,
-            HelpMessage="Target Oracle Instance name")]
-        [String]$Instance,
-        # This is the DBID of the target database
-        [Parameter(Mandatory=$true,
-            HelpMessage="Oracle Database ID")]
-        [bigint]$DBID,
-        # This is the starting snapshot for the Report scope
-        [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
-        [bigint]$StartSnapshot,
-        # This is the ending snapshot for the Report scope
-        [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
-        [bigint]$EndSnapshot,
-        # Switch to turn on the error logging
-        [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
-    )
-    Begin{}
-    Process{
-        if (Test-OracleEnv) {
-            if ($PasswordPrompt) {
-                if ($DBUser.Length -eq 0) {
-                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
-                }
-                if ($DBPass) {
-                    $SecurePass = $DBPass
-                } else {
-                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                }
-                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+"@ -PlainText
             }
-            if ($DBUser) {
-                $LoginString = "${DBUser}/${DBPass}@$TargetDB"
-            } else {
-                $LoginString = "/@$TargetDB"
-            }
-            $InstNumber = $Instance.Substring($Instance.Length-1)
-            # Using here-string to pipe the SQL query to SQL*Plus
-            @"
-define  db_name      = '$TargetDB';
+            foreach ($i in $InstObjects) {
+                $InstNumber = $i.InstanceNumber
+                $InstName = $i.InstanceName
+                Use-oracleDB -TargetDB $ContainerDB -SQLQuery @"
+define  db_name      = '$PDB';
 define  dbid         = $DBID;
 define  inst_num     = $InstNumber;
-define  inst_name    = '$Instance';
+define  inst_name    = '$InstName';
 define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'awr_${Instance}_${StartSnapshot}_${EndSnapshot}_report.html'
+define  report_name  = 'awr_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.html'
 @@?/rdbms/admin/awrrpti.sql
 exit;
-EXIT
-"@ | &"sqlplus" "-S" "$LoginString"
+"@ -PlainText            }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -2678,6 +2806,7 @@ SET COLSEP '|'
             [System.Collections.ArrayList]$TargetQueue = $TargetDB
             $JobTimeOut = [timespan]::FromSeconds($Timeout)
             foreach ($DBName in $TargetDB) {
+                [String]$GlobalName = Get-oracleNAmes -TargetDB $DBName | Select -ExpandProperty GlobalName
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                 if ($DBUser) {
                     $LoginString = "${DBUser}/${DBPass}@${DBName}"
@@ -2743,7 +2872,8 @@ exit;
                             [String]$HeaderLine = $HeaderLine.ToUpper().Replace("DISTINCT(","").Replace("COUNT(","")
                             [String]$HeaderLine = $HeaderLine.Replace(",","|")
                             Write-Verbose "HeaderLine: $HeaderLine"
-                            $DBProps = @{ 'DBName' = [String]$DBName }
+                            $DBProps = @{ 'EndPoint' = [String]$DBName
+                                          'DBName' = $GlobalName }
                             $ResObj = New-Object -TypeName PSObject -Property $DBProps
                             $ColCounter = 0
                             if ([String]$HeaderLine -notmatch "\|") {
@@ -2808,7 +2938,8 @@ exit;
                                     $Counter++
                                 } else {
                                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Building Output object"
-                                    $DBProps = @{ 'DBName' = [String]$DBName }
+                                    $DBProps = @{ 'EndPoint' = [String]$DBName
+                                                  'DBName' = $GlobalName }
                                     $ResObj = New-Object -TypeName PSObject -Property $DBProps
                                     $ColCounter = 0
                                     Write-Verbose "Row: $Row"

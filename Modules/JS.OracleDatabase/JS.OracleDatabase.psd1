@@ -12,7 +12,7 @@
 RootModule = 'JS.OracleDatabase.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.2.2.6'
+ModuleVersion = '0.2.2.7'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -69,7 +69,7 @@ Description = 'This module is intended to help Oracle DBAs who work from windows
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @('Add-OracleDBLink','Test-OracleDBLink','Remove-OracleDBLink','Get-OracleADDMInstanceReport','Get-OracleAWRInstanceReport','Get-OracleAWRReport','Get-OracleDBID','Get-OracleDBInfo','Get-OracleHosts','Get-OracleInstances','Get-OracleDBVersion','Get-OracleLongOperations','Get-OracleLongRunQueries','Get-OracleNames','Get-OracleObjects','Get-OraclePerfReports','Get-OracleServices','Get-OracleSessions','Get-OracleSize','Get-OracleSnapshot','Get-OracleSnapshotTime','Get-OracleSQLText','Get-OracleUsers','Get-OracleOptions','Ping-OracleDB','Test-OracleEnv','Remove-OracleSchema','Test-OracleHealth','Use-OracleDB')
+FunctionsToExport = @('Add-OracleDBLink','Test-OracleDBLink','Remove-OracleDBLink','Get-OracleADDMReport','Get-OracleAWRReport','Get-OracleDBID','Get-OracleDBInfo','Get-OracleHosts','Get-OracleInstances','Get-OracleDBLinks','Get-OracleDBVersion','Get-OracleLongOperations','Get-OracleLongRunQueries','Get-OracleNames','Get-OracleObjects','Get-OraclePrivileges','Get-OraclePerfReports','Get-OracleServices','Get-OracleSessions','Get-OracleSize','Get-OracleSnapshot','Get-OracleSnapshotTime','Get-OracleSQLText','Get-OracleUsers','Get-OracleOptions','Ping-OracleDB','Test-OracleEnv','Remove-OracleSchema','Test-OracleHealth','Use-OracleDB')
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
