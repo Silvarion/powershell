@@ -1,3 +1,5 @@
 # Locally ignore my profile and scratchpad
 LinuxPrompt.ps1
 Prompt.ps1
+Microsoft.PowerShell_profile.ps1
+PS_Scratchpad.ps1
