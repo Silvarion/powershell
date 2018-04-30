@@ -21,6 +21,9 @@ if (Test-OracleEnv) {
     <Some commands>
 }
 .FUNCTIONALITY
+    This function looks for the ORACLE_HOME environment variable and inside looks for Oracle binaries.
+.ROLE
+    Oracle DBA
 #>
 function Test-OracleEnv {
     [CmdletBinding()]
@@ -156,6 +159,139 @@ function Ping-OracleDB {
         }
     }
 }
+
+<#
+.Synopsis
+    List, create or drop restore points
+.DESCRIPTION
+    This functions lists, creates or drops restore points in a oracle database
+.EXAMPLE
+    Edit-OracleRestorePoint -TargetDB myorcl -List
+.EXAMPLE
+    Edit-OracleRestorePoint -TargetDB myorcl -Create -RPName myRestorePoint -Guaranteed
+.EXAMPLE
+    Edit-OracleRestorePoint -TargetDB myorcl -Drop -RPName myRestorePoint
+.FUNCTIONALITY
+    This functions uses SQL*Plus and the v`$restore_point data dictionary view to list or verify restore point names.
+.ROLE
+    OracleDBA
+    #>
+    function Edit-OracleRestorePoint {
+        [CmdletBinding()]
+        [Alias("ora-restorepoint")]
+        Param(
+            [String[]]$TargetDB,
+            [Switch]$Create,
+            [Switch]$Drop,
+            [Switch]$List,
+            [Switch]$Guaranteed,
+            [String]$RPName
+        )
+        # Variable initialization
+        if ($Guaranteed) {
+            $GuaranteedSQL = " GUARANTEE FLASHBACK DATABASE"
+        }
+        # Force default create if no flag is provided
+        if (-not ($Create -or $Drop -or $List)) {
+            $List = $true
+        }
+        # Execute
+        if ($List) {
+            Use-OracleDB -TargetDB $TargetDB -SQLQuery "SELECT name AS `"GRPName`", scn AS `"GRPSCN`", time AS `"GRPTime`", guaranteed storage_size AS `"GRPSize`" FROM v`$restore_point;" | Format-Table -AutoSize
+        } elseif ($Drop) {
+            Use-OracleDB -TargetDB $DBName -SQLQuery "DROP RESOTRE POINT $($_.GRPName);" -PlainText
+        } elseif ($Create) {
+            Use-OracleDB -TargetDB $TargetDB -SQLQuery "CREATE RESTORE POINT GRP_TRN_REFRESH_$(Get-Date -UFormat "%Y%m%d")$GuaranteedSQL;" -PlainText
+        }
+    }
+
+<#
+.Synopsis
+   List restore points
+.DESCRIPTION
+   This functions lists the restore points in a oracle database
+.EXAMPLE
+   Show-OracleRestorePoint -TargetDB myorcl
+.NOTES
+    This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
+.FUNCTIONALITY
+    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
+.ROLE
+    OracleDBA
+    #>
+function Show-OracleRestorePoint {
+        [CmdletBinding()]
+        [Alias("ora-rplist")]
+        Param(
+            [Parameter(Mandatory=$True,
+            ValueFromPipeline=$True,
+            Position=1)]
+            [String[]]$TargetDB,
+            [String]$RPName
+        )
+        # Execute
+        Edit-OracleRestorePoint -TargetDB $TargetDB -List
+}
+
+<#
+.Synopsis
+   Create restore points
+.DESCRIPTION
+   This functions creates a restore points in a oracle database
+.EXAMPLE
+   New-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint
+.EXAMPLE
+   New-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint -Guaranteed
+.FUNCTIONALITY
+    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
+.ROLE
+    OracleDBA
+#>
+function New-OracleRestorePoint {
+        [CmdletBinding()]
+        [Alias("ora-rpcreate")]
+        Param(
+            [Parameter(Mandatory=$True,
+            ValueFromPipeline=$True,
+            Position=1)]
+            [String[]]$TargetDB,
+            [Parameter(Mandatory=$true)]
+            [String]$RPName
+        )
+        # Execute
+        Edit-OracleRestorePoint -TargetDB $TargetDB -Create -RPName $RPName
+}
+
+<#
+.Synopsis
+   Drop restore points
+.DESCRIPTION
+   This functions drops a restore points in a oracle database
+.EXAMPLE
+   Remove-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint
+.EXAMPLE
+   Remove-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint -All
+.FUNCTIONALITY
+    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
+.ROLE
+    OracleDBA
+#>
+function Remove-OracleRestorePoint {
+        [CmdletBinding()]
+        [Alias("ora-rpdrop")]
+        Param(
+            [Parameter(Mandatory=$True,
+            ValueFromPipeline=$True,
+            Position=1)]
+            [String[]]$TargetDB,
+            [Parameter(Mandatory=$true)]
+            [String]$RPName,
+            [Switch]$All
+        )
+        # Execute
+        Edit-OracleRestorePoint -TargetDB $TargetDB -Drop -RPName $RPName
+}
+
 
 <#
 .Synopsys
