@@ -4,7 +4,7 @@
 .DESCRIPTION
    This Module has functions to ping Oracle Databases, query them and get performance reports  automatically.
 .EXAMPLE
-   Import-Module \Path\to\OracleUtils.psm1
+   Import-Module \Path\to\JS.OracleDatabase
 .NOTES
     This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
 .FUNCTIONALITY
@@ -51,11 +51,11 @@ function Test-OracleEnv {
         <Some commands>
     }
 .EXAMPLE
-    if (Ping-OracleDB -TargetDB orcl -Full | Select -Property PingStatus) {
+    if (Ping-OracleDB -TargetDB orcl -Full | Select-Object -Property PingStatus) {
         Write-Output "Database pinged successfully"
         <Some commands>
     } else {
-        Write-Warning Ping-OracleDB -TargetDB orcl | Select -Property PingResult
+        Write-Warning Ping-OracleDB -TargetDB orcl | Select-Object -Property PingResult
     }
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBS to verify the reachability of a DB
@@ -93,8 +93,8 @@ function Ping-OracleDB {
         $JobLog=@{}
         [System.Collections.ArrayList]$TargetQueue = $TargetDB
         $JobTimeOut = [timespan]::FromSeconds($Timeout)
-        While ($($TargetQueue.Count) -gt 0 -or $(Get-Job | ? { $_.Name -match "TNSPing_"}).ChildJobs.Count -gt 0 ) {
-            Write-Verbose "Database Queue: $TargetQueue | Jobs: $JobCount | Running: $($(Get-Job | ? { $_.Name -match "TNSPing_" -and $_.State -eq "Running" }).ChildJobs.Count)"
+        While ($($TargetQueue.Count) -gt 0 -or $(Get-Job | Where-Object { $_.Name -match "TNSPing_"}).ChildJobs.Count -gt 0 ) {
+            Write-Verbose "Database Queue: $TargetQueue | Jobs: $JobCount | Running: $($(Get-Job | Where-Object { $_.Name -match "TNSPing_" -and $_.State -eq "Running" }).ChildJobs.Count)"
             if ($($TargetQueue.Count) -gt 0 -and $JobCount -lt $Parallelism) { # There are jobs in queue and open slots
                 $DBName = $TargetQueue[0]
                 $TargetQueue.Remove($DBName)
@@ -103,7 +103,7 @@ function Ping-OracleDB {
                 $JobCount += 1
             } # There are jobs in queue - End
             Write-Progress -Activity "TNSPing" -CurrentOperation "Checking Completed/Failed Jobs"
-            foreach ($JobName in $(Get-Job | ? { $_.Name -match "TNSPing_" -and $_.State -in @("Completed","Failed") })) { # There are Completed jobs
+            foreach ($JobName in $(Get-Job | Where-Object { $_.Name -match "TNSPing_" -and $_.State -in @("Completed","Failed") })) { # There are Completed jobs
                 $Pinged = Receive-Job $JobName.Name -AutoRemoveJob -Wait 
                 Write-Verbose "Received completed job: $($JobName.Name)"
                 if ($([String]$Pinged).Length -gt 0) {
@@ -124,7 +124,7 @@ function Ping-OracleDB {
                 $JobCount -= 1
         	} # Job retrieval loop
             Write-Progress -Activity "TNSPing" -CurrentOperation "Checking Running Jobs"
-            foreach ($JobInProgress in Get-Job "TNSPing_*" | ? { $_.State -eq 'Running' } ) { # There are Running jobs
+            foreach ($JobInProgress in Get-Job "TNSPing_*" | Where-Object { $_.State -eq 'Running' } ) { # There are Running jobs
                 #Write-Verbose "Analizing $($JobInProgress.Name) Job in State $($JobInProgress.State)"
                 $JobOutput = Receive-Job $JobInProgress -Keep
                 Write-Verbose "Job Outoput: $([String]$JobOutput)"
@@ -163,9 +163,11 @@ function Ping-OracleDB {
 .DESCRIPTION
    This function returns a PSObject "OracleDatabase" with the database info
 .EXAMPLE
-    Get-OracleServices -TargetDB myorcl -List
+    Get-OracleDBInfo -TargetDB myorcl
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve general info from Oracle Databases
+.ROLE
+    Oracle DBA
 #>
 function Get-OracleDBInfo {
     [CmdletBinding()]
@@ -240,7 +242,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                             $ErrorInOutput=$true
                             $Line = "$($Line.Substring(0,25))..."
                             $DBProps=[ordered]@{
-                                [String]'DBName'=[String]$DBName
+                                [String]'EndPoint'=[String]$DBName
                                 [String]'DBID'=""
                                 [String]'GlobalName'=""
                                 [String]'UniqueName'=""
@@ -259,7 +261,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                     if (-not $ErrorInOutput) {
                         Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Building output object" -PercentComplete 85
                         $DBProps = [ordered]@{
-                            [String]'DBName'=$DBName
+                            [String]'EndPoint'=$DBName
                             [String]'DBID'=$Output[0]
                             [String]'UniqueName'=$Output[1]
                             [String]'GlobalName'=$Output[2]
@@ -275,7 +277,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                     }
                 } else {
                     $DBProps = [ordered]@{
-                        [String]'DBName'=[String]$DBName
+                        [String]'EndPoint'=[String]$DBName
                         [String]'DBID'=""
                         [String]'GlobalName'=""
                         [String]'UniqueName'=""
@@ -284,7 +286,7 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
                         [String]'ActiveServices'=""
                         [String]'Services'=""
                         [String]'Users'=""
-                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select-Object -ExpandProperty PingResult)
                     }
                     $DBObj=New-Object -TypeName PSObject -Property $DBProps
                     Write-Output $DBObj
@@ -299,11 +301,13 @@ SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USER
 .Synopsis
    Returns the Objects in an Oracle DB
 .DESCRIPTION
-   This function returns the Active Services in an Oracle DB
+   This function returns the Oracle Objects in an Oracle DB
 .EXAMPLE
-    Get-OracleSessions -TargetDB myorcl -Username myDBAccount
+    Get-OracleObjects -TargetDB myorcl -SQLFilter "owner = 'SYSTEM'"
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list ofobjects in a DB
+.ROLE
+   Oracle DBA   
 #>
 function Get-OracleObjects {
     [CmdletBinding()]
@@ -314,7 +318,7 @@ function Get-OracleObjects {
         # It can check several databases at once
         [String[]]$TargetDB,
         # SQL filter to add in the WHERE section of the query
-        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [Parameter(HelpMessage="This must be an ANSI SQL compliant WHERE clause")]
         [String]$SQLFilter,
         # Username if required
         [Alias("u")]
@@ -348,7 +352,6 @@ function Get-OracleObjects {
                     }
 
                 } else {
-
                 Write-Verbose "No WHERE in the query"
                     if ($SQLFilter -match "^WHERE") {
                         Write-Verbose "Filter is good"
@@ -388,13 +391,15 @@ $SQLFilter;
 
 <#
 .Synopsis
-   Returns the Objects in an Oracle DB
+   Returns the Privileges in an Oracle DB
 .DESCRIPTION
-   This function returns the Active Services in an Oracle DB
+   This function returns the Privileges for users and roles in an Oracle DB
 .EXAMPLE
-    Get-OracleSessions -TargetDB myorcl -Username myDBAccount
+    Get-OracleSessions -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+.ROLE
+   Oracle DBA
 #>
 function Get-OraclePrivileges {
     [CmdletBinding()]
@@ -405,7 +410,7 @@ function Get-OraclePrivileges {
         # It can check several databases at once
         [String[]]$TargetDB,
         # SQL filter to add in the WHERE section of the query
-        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [Parameter(HelpMessage="This must be an ANSI SQL compliant WHERE clause")]
         [String]$SQLFilter,
         # Username if required
         [Alias("u")]
@@ -437,7 +442,6 @@ function Get-OraclePrivileges {
                     } else {
                         Write-Verbose "Filter is good"
                     }
-
                 } else {
 
                 Write-Verbose "No WHERE in the query"
@@ -462,7 +466,6 @@ FROM (
 )
 $SQLFilter
 ORDER BY 1,2,3;
-
 "@
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "Querying $DBName..." -PercentComplete 25
@@ -472,7 +475,6 @@ ORDER BY 1,2,3;
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
             }
-
             Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -480,13 +482,15 @@ ORDER BY 1,2,3;
 
 <#
 .Synopsis
-   Returns the Objects in an Oracle DB
+   Returns the DB Links in an Oracle DB
 .DESCRIPTION
-   This function returns the DB Links in an Oracle DB
+   This function returns the DB Links and their related info in an Oracle DB
 .EXAMPLE
-    Get-OracleDBLinks -TargetDB myorcl -Username myDBAccount
+    Get-OracleDBLinks -TargetDB myorcl
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of database links in a DB
+.ROLE
+    Oracle DBA
 #>
 function Get-OracleDBLinks {
     [CmdletBinding()]
@@ -497,7 +501,7 @@ function Get-OracleDBLinks {
         # It can check several databases at once
         [String[]]$TargetDB,
         # SQL filter to add in the WHERE section of the query
-        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [Parameter(HelpMessage="This must be an ANSI SQL compliant WHERE clause")]
         [String]$SQLFilter,
         # Username if required
         [Alias("u")]
@@ -650,11 +654,13 @@ ORDER BY 1;
 .Synopsis
    Returns the Sessions in an Oracle DB
 .DESCRIPTION
-   This function returns the Active Services in an Oracle DB
+   This function returns the Sessions information in an Oracle DB
 .EXAMPLE
-    Get-OracleSessions -TargetDB myorcl -Username myDBAccount
+    Get-OracleSessions -TargetDB myorcl
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of sessions in a DB
+.ROLE
+    Oracle DBA
 #>
 function Get-OracleSessions {
     [CmdletBinding()]
@@ -665,7 +671,7 @@ function Get-OracleSessions {
         # It can check several databases at once
         [String[]]$TargetDB,
         # SQL filter to add in the WHERE section of the query
-        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [Parameter(HelpMessage="This must be an ANSI SQL compliant WHERE clause")]
         [String]$SQLFilter,
         # Username if required
         [Alias("u")]
@@ -739,13 +745,15 @@ $SQLFilter;
 
 <#
 .Synopsis
-   Returns the Size an Oracle DB or its components, based on the paramaters passed
+   Returns the Size an Oracle DB, Tablespace or Tables, based on the paramaters passed
 .DESCRIPTION
    This function returns the Active Services in an Oracle DB
 .EXAMPLE
     Get-OracleSize -TargetDB myorcl -SizeType Full -Unit GB
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+.ROLE
+    Oracle DBA
 #>
 function Get-OracleSize {
     [CmdletBinding()]
@@ -989,11 +997,11 @@ ORDER BY DB_NAME;
 
 <#
 .Synopsis
-   Returns the status of Database Vault
+   Returns the status of the Oracle Database Options
 .DESCRIPTION
-   This function returns the status of Database Vault in an Oracle DB
+   This function returns the status of the Database Options in an Oracle DB
 .EXAMPLE
-    Get-OracleVaultStatus -TargetDB myorcl
+    Get-OracleOptions -TargetDB myorcl
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve the status of Database Vault in an Oracle DB
 #>
@@ -1058,9 +1066,11 @@ ORDER BY 1;
 .DESCRIPTION
     This function returns the hostname, instance name, global name and unique name of the database
 .EXAMPLE
-    Get-OracleGlobalName -TargetDB <DB NAME> [-ErrorLog]
+    Get-OracleNames -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve Global names, unique name, hostname and instance name in an Oracle DB
 .ROLE
-   This cmdlet is mean to be used by Oracle DBAs
+   Oracle DBA
 #>
 function Get-OracleNames {
     [CmdletBinding()]
@@ -1151,7 +1161,7 @@ exit
                         Write-Output $DBObj
                     }
                 } else {
-                $ErrorMsg=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select -ExpandProperty PingResult)
+                $ErrorMsg=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select-Object -ExpandProperty PingResult)
                     $DBProps=[ordered]@{
                         'DBName'=[String]$DBName
                         'GlobalName'=[String]"--------"
@@ -1176,9 +1186,11 @@ exit
 .DESCRIPTION
     This function returns instance names for a target oracle database
 .EXAMPLE
-    Get-OracleInstance -TargetDB <DB NAME> -SQLScript <Path/to/file.sql> [-ErrorLog]
+    Get-OracleInstances -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the instance names in an Oracle DB
 .ROLE
-   This cmdlet is mean to be used by Oracle DBAs
+   Oracle DBA
 #>
 function Get-OracleInstances {
     [CmdletBinding()]
@@ -1251,8 +1263,10 @@ exit
     This function returns host names for a target oracle database
 .EXAMPLE
     Get-OracleHosts -TargetDB <DB NAME> [-ErrorLog]
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the host names for an Oracle DB
 .ROLE
-   This cmdlet is mean to be used by Oracle DBAs
+   Oracle DBA
 #>
 function Get-OracleHosts {
     [CmdletBinding()]
@@ -1309,7 +1323,6 @@ ORDER BY 1;
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
-
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1325,8 +1338,10 @@ ORDER BY 1;
     This function returns host names for a target oracle database
 .EXAMPLE
     Get-OracleHosts -TargetDB <DB NAME> [-ErrorLog]
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the host names for an Oracle DB
 .ROLE
-   This cmdlet is mean to be used by Oracle DBAs
+   Oracle DBA
 #>
 function Get-OracleUsers {
     [CmdletBinding()]
@@ -1339,7 +1354,7 @@ function Get-OracleUsers {
             HelpMessage="Target Oracle Database name")]
         [String[]]$TargetDB,
         # SQL filter to add in the WHERE section of the query
-        [Parameter(HelpMessage="This must bu an ANSI SQL compliant WHERE clause")]
+        [Parameter(HelpMessage="This must be an ANSI SQL compliant WHERE clause")]
         [String]$SQLFilter,
         # Username if required
         [Alias("u")]
@@ -1402,7 +1417,6 @@ $SQLFilter;
                 } else {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query
                 }
-
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
         } else {
@@ -1418,11 +1432,13 @@ $SQLFilter;
 .Synopsis
     Query an Oracle database to get the DBID
 .DESCRIPTION
-    This function returns the DBID of the target database
+    This function returns the DBID of the oracle database
 .EXAMPLE
-    Get-OracleInstance -TargetDB <DB NAME>  [-ErrorLog]
+    Get-OracleDBID -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the DBID of an Oracle DB
 .ROLE
-   This cmdlet is mean to be used by Oracle DBAs
+   Oracle DBA
 #>
 function Get-OracleDBID {
     [CmdletBinding()]
@@ -1479,9 +1495,15 @@ SELECT dbid FROM v$database;
 
 <#
 .Synopsis
+    Query an Oracle database to get the an AWR Snapshot ID based on a timestamp
 .DESCRIPTION
+    This function returns an AWR Snapshot ID
 .EXAMPLE
+    Get-OracleSanpshot -TargetDB myorcl -Timestamp "2018-01-21 17:00:00 +0" -Mark start
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the host names for an Oracle DB
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleSnapshot {
     [CmdletBinding()]
@@ -1565,9 +1587,15 @@ EXIT
 
 <#
 .Synopsis
+    Query an Oracle database to get the an AWR Snapshot Timestamp, based on Snapshot and DB IDs.
 .DESCRIPTION
+    This function returns an AWR Snapshot Timestamp, based on Snapshot and DB IDs.
 .EXAMPLE
+    Get-OracleSanpshot -TargetDB myorcl -SnapshotID 1234 -DBID 567890123
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve snapshots information
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleSnapshotTime {
     [CmdletBinding()]
@@ -1589,7 +1617,7 @@ function Get-OracleSnapshotTime {
         [bigint]$DBID,
         # This is the snapshot to use to query the time
         [Parameter(Mandatory=$true,
-            HelpMessage="Starting snapshot approximate time")]
+            HelpMessage="Snapshot ID")]
         [bigint]$Snapshot,
         # Mark that defines if the snapshot is upper or lower boundary to the analysis
         [Parameter(Mandatory=$true)]
@@ -1650,10 +1678,15 @@ EXIT
 
 <#
 .Synopsis
-    Returns Long running queries as per Schemas and SecondsLimit parameters
+    Query an Oracle database to get a list of long operations running as shown in the gv$session_longops view
 .DESCRIPTION
+    This function returns a list of long operations running
 .EXAMPLE
+    Get-OracleLongOpertaions -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve snapshots information
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleLongOperations {
     [CmdletBinding()]
@@ -1733,10 +1766,15 @@ AND l.serial# = s.serial#;
 
 <#
 .Synopsis
-    Returns Long running queries as per Schemas and SecondsLimit parameters
+    Query an Oracle database to get a list of long running queries
 .DESCRIPTION
+    This function returns a list of long running queries based on the seconds limit provided
 .EXAMPLE
+    Get-OracleLongRunQueries -TargetDB myorcl -SecondsLimit 30
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a list of long running queries
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleLongRunQueries {
     [CmdletBinding()]
@@ -1746,8 +1784,6 @@ function Get-OracleLongRunQueries {
         [Parameter(Mandatory=$true,
             HelpMessage="Target Oracle Database name")]
         [String]$TargetDB,
-        # Target Schema
-        [String[]]$UserName,
         # Username if required
         [Alias("u")]
         [String]$DBUser,
@@ -1819,10 +1855,15 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 
 <#
 .Synopsis
-    Returns SQL Id, Text and bind variables of a given SQL Id
+    Query an Oracle database to get the text of a certain query
 .DESCRIPTION
+    This function returns the text of a certain query based on SQL ID provided
 .EXAMPLE
+    Get-OracleSQLText -TargetDB myorcl -SqlId some123id
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a list of long running queries
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleSQLText {
     [CmdletBinding()]
@@ -1902,10 +1943,15 @@ WHERE t.sql_id='$SqlId'
 
 <#
 .Synopsis
-    Returns SQL Id, Text and bind variables of a given SQL Id
+    Query an Oracle database to get the database version
 .DESCRIPTION
+    This function returns the database version
 .EXAMPLE
+    Get-OracleDBVersion -TargetDB myorcl
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the database version
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleDBVersion {
     [CmdletBinding()]
@@ -1968,13 +2014,17 @@ WHERE ROWNUM = 1;
     }
 }
 
-
 <#
 .Synopsis
-    Creates a DB link on the target database
+    Add an Oracle Database Link.
 .DESCRIPTION
+    This function adds an Oracle Database Link.
 .EXAMPLE
+    Add-OracleDBLink -TargetDB myorcl -SchemaName myuser -LinkName myDBLink -LinkUser myRemoteUser -LinkPasswordPrompt -LinkTarget myRemoteDB
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to create DB Links
 .ROLE
+   Oracle DBA
 #>
 function Add-OracleDBLink {
     [CmdletBinding()]
@@ -2002,15 +2052,9 @@ function Add-OracleDBLink {
         [Parameter(Mandatory=$true,
             HelpMessage="Username to connect to using the db link")]
         [String]$LinkUser,
-        # DB Link Password
-        [Parameter(HelpMessage="Password to use with the db link")]
-        [String]$LinkPassword,
         # DB Link Password Promt flag
         [Parameter(HelpMessage="Ask for the password to use with the db link")]
         [Switch]$LinkPasswordPrompt,
-        # DB Link Password Values
-        [Parameter(HelpMessage="Password to use with the db link as in IDENTIFIED BY VALUES")]
-        [String]$LinkPswdValues,
         # DB Link Host (Target database)
         [Parameter(Mandatory = $true,
             HelpMessage="DB Link target databasse name/descriptor")]
@@ -2044,7 +2088,7 @@ function Add-OracleDBLink {
                     $LinkPass = Use-OracleDB -TargetDB $LinkTarget -SQLQuery @"
                     SET LINESIZE 5000
                     SELECT spare4 AS `"LinkPass`" FROM sys.user$ WHERE name = '$LinkUser';
-"@ | Select -ExpandProperty LinkPass
+"@ | Select-Object -ExpandProperty LinkPass
                     $CreateCommand = "CREATE DATABASE LINK $LinkName CONNECT TO $LinkUser IDENTIFIED BY VALUES '$LinkPass' USING '$LinkTarget'"
                 }
 
@@ -2085,10 +2129,15 @@ function Add-OracleDBLink {
 
 <#
 .Synopsis
-    Creates a DB link on the target database
+    Test an Oracle Database Link.
 .DESCRIPTION
+    This function tests an Oracle Database Link.
 .EXAMPLE
+    Test-OracleDBLink -TargetDB myorcl -SchemaName myuser -LinkName myDBLink
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to test DB Links
 .ROLE
+   Oracle DBA
 #>
 function Test-OracleDBLink {
     [CmdletBinding()]
@@ -2156,8 +2205,8 @@ DROP FUNCTION TEST_DB_LINK;
             $ResultProps = [ordered]@{ 'DBName' = $TargetDB;
                 'SchemaName' = $SchemaName;
                 'LinkName' = $LinkName;
-                'LinkUser' = $LinkData | Select -ExpandProperty USERNAME;
-                'LinkTarget' = $LinkData | Select -ExpandProperty HOST;
+                'LinkUser' = $LinkData | Select-Object -ExpandProperty USERNAME;
+                'LinkTarget' = $LinkData | Select-Object -ExpandProperty HOST;
                 'TestResult' = $ResultText
             }
             $ResObj = New-Object -TypeName PSObject -Property $ResultProps
@@ -2169,10 +2218,15 @@ DROP FUNCTION TEST_DB_LINK;
 
 <#
 .Synopsis
-    Creates a DB link on the target database
+    Drop an Oracle Database Link.
 .DESCRIPTION
+    This function drops an Oracle Database Link.
 .EXAMPLE
+    Remove-OracleDBLink -TargetDB myorcl -SchemaName myuser -LinkName myDBLink
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to drop DB Links
 .ROLE
+   Oracle DBA
 #>
 function Remove-OracleDBLink {
     [CmdletBinding()]
@@ -2250,8 +2304,11 @@ function Remove-OracleDBLink {
 .DESCRIPTION
     This function generates ADDM Report for single instance and cluster databases
 .EXAMPLE
-    
+    Get-OracleADDMReport -TargetDB myorcl -StartTime '2018-01-21 08:00:00 -5' -EndTime '2018-01-21 17:00:00 -5'
+.FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to generate HTML AWR reports
 .ROLE
+   Oracle DBA
 #>
 function Get-OracleADDMReport {
     [CmdletBinding(DefaultParameterSetName="Timestamps")]
@@ -2321,13 +2378,13 @@ function Get-OracleADDMReport {
             if ($Instances.Count -lt 1) {
                 $InstObjects = Get-OracleInstances -TargetDB $TargetDB
             } else {
-                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | ? { $_.InstanceName -in $Instances }
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | Where-Object { $_.InstanceName -in $Instances }
             }
             $DBNames = Get-OracleNames -TargetDB $TargetDB
             $PDB = $DBNAmes.GlobalName
             $ContainerDB = $DBNames.UniqueName
             if (!$DBID) {
-                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select -ExpandProperty DBID
+                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select-Object -ExpandProperty DBID
             }
             if ($PSCmdlet.ParameterSetName -eq "Snapshots") {
                 if (!$StartSnapshot) {
@@ -2343,8 +2400,8 @@ function Get-OracleADDMReport {
                 if (!$EndTime) {
                     Read-Host -Prompt "Please enter the value for the ending time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $EndTime
                 }
-                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select -ExpandProperty SnapshotId
-                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select -ExpandProperty SnapshotId
+                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select-Object -ExpandProperty SnapshotId
+                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select-Object -ExpandProperty SnapshotId
             } else {
                 Write-Error "You MUST use either Timestamps or Snapshots" -ErrorAction Stop
             }
@@ -2375,9 +2432,15 @@ exit;
 
 <#
 .Synopsis
+    This function generates AWR Report for single instance and cluster databases
 .DESCRIPTION
+    This function generates AWR Report for single instance and cluster databases
 .EXAMPLE
+    Get-OracleAWRReport -TargetDB myorcl -StartTime '2018-01-21 08:00:00 -5' -EndTime '2018-01-21 17:00:00 -5'
 .FUNCTIONALITY
+   This cmdlet is mean to be used by Oracle DBAs to generate HTML AWR reports
+.ROLE
+   Oracle DBA
 #>
 function Get-OracleAWRReport {
     [CmdletBinding()]
@@ -2445,7 +2508,7 @@ function Get-OracleAWRReport {
             }
             # Pre-checks for required data
             if ($Instance -and $Instances.Count -ge 1) {
-                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | ? { $_.InstanceName -in $Instances }
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | Where-Object { $_.InstanceName -in $Instances }
             } else {
                 $InstObjects = Get-OracleInstances -TargetDB $TargetDB
                 $Global = $true
@@ -2454,7 +2517,7 @@ function Get-OracleAWRReport {
             $PDB = $DBNAmes.GlobalName
             $ContainerDB = $DBNames.UniqueName
             if (!$DBID) {
-                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select -ExpandProperty DBID
+                $DBID = Get-OracleDBID -TargetDB $TargetDB |Select-Object -ExpandProperty DBID
             }
             if ($PSCmdlet.ParameterSetName -eq "Snapshots") {
                 if (!$StartSnapshot) {
@@ -2470,8 +2533,8 @@ function Get-OracleAWRReport {
                 if (!$EndTime) {
                     Read-Host -Prompt "Please enter the value for the ending time (YYYY-MM-DD HH24:MI:SS)" -OutVariable $EndTime
                 }
-                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select -ExpandProperty SnapshotId
-                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select -ExpandProperty SnapshotId
+                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($StartTime)" -Mark start | Select-Object -ExpandProperty SnapshotId
+                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp "$($EndTime)" -Mark end | Select-Object -ExpandProperty SnapshotId
             } else {
                 Write-Error "You MUST use either Timestamps or Snapshots" -ErrorAction Stop
             }
@@ -2519,7 +2582,7 @@ exit;
 .DESCRIPTION
     This function defines the required variables to generate automatically AWR and ADDM report sets.
 .EXAMPLE
-    Get-OraclePerfReports  [-AWR] [-ADDM] -TargetDB <DB NAME> [-ErrorLog]
+    Get-OraclePerfReports  [-AWR] [-ADDM] -TargetDB myorcl -StartTime '2018-01-21 08:00:00 -5' -EndTime '2018-01-21 17:00:00 -5'
 .FUNCTIONALITY
        This cmdlet is mean to be used by Oracle DBAs
 #>
@@ -2586,7 +2649,7 @@ function Get-OraclePerfReports {
             if (Ping-OracleDB -TargetDB $TargetDB) {
 				Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Database pinged successfully"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Gathering DBID"
-                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select -ExpandProperty DBID
+                [String]$TempStr = Get-OracleDBID -TargetDB $TargetDB | Select-Object -ExpandProperty DBID
                 [bigint]$DBID = $TempStr.Trim(' ')
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "DBID for $TargetDB : $DBID"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Snapshot numbers"
@@ -2600,7 +2663,7 @@ function Get-OraclePerfReports {
                 [String]$EndSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $EndSnapshot -Mark end
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot Time: $StartSnapTime | Ending Snapshot Time: $EndSnapTime"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Oracle database instances"
-                $Instances = Get-OracleInstances -TargetDB $TargetDB | Select -ExpandProperty InstanceName
+                $Instances = Get-OracleInstances -TargetDB $TargetDB | Select-Object -ExpandProperty InstanceName
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Instances found: $Instances"
                 if ($AWR) {
                     Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Generating AWR Report Set"
@@ -2662,7 +2725,9 @@ function Get-OraclePerfReports {
     Use-OracleDB -TargetDB <DB NAME> -SQLQuery "SELECT 1 FROM DUAL;" -Dump -DumpFile C:\path\to\dump\file.out> -ErrorLog
 .FUNCTIONALITY
     This cmdlet is mean to be used by Oracle DBAs to query databases or run scripts.
-#>
+.ROLE
+    Oracle DBA
+    #>
 function Use-OracleDB {
     [CmdletBinding(
         DefaultParameterSetName='BySQLQuery',
@@ -2806,7 +2871,7 @@ SET COLSEP '|'
             [System.Collections.ArrayList]$TargetQueue = $TargetDB
             $JobTimeOut = [timespan]::FromSeconds($Timeout)
             foreach ($DBName in $TargetDB) {
-                [String]$GlobalName = Get-oracleNAmes -TargetDB $DBName | Select -ExpandProperty GlobalName
+                [String]$GlobalName = Get-oracleNAmes -TargetDB $DBName | Select-Object -ExpandProperty GlobalName
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
                 if ($DBUser) {
                     $LoginString = "${DBUser}/${DBPass}@${DBName}"
@@ -2980,6 +3045,18 @@ exit;
     }
 }
 
+<#
+.Synopsis
+    Drop a schema including tablespaces and datafiles
+.DESCRIPTION
+    This function  drops a schema including tablespaces and datafiles
+.EXAMPLE
+    Remove-OracleSchema -TargetDB myorcl -SchemaName userToDrop
+.FUNCTIONALITY
+    This cmdlet is mean to be used by Oracle DBAs to drop schemas
+.ROLE
+    Oracle DBA
+    #>
 function Remove-OracleSchema {
     [CmdletBinding(
         SupportsShouldProcess=$true)]
@@ -3009,40 +3086,40 @@ function Remove-OracleSchema {
 "@
 
         $DropperQuery=""
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PACKAGE' }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'PACKAGE' }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name;"
             $DropperQuery += "$DropThis`n"
         }
 
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'PROCEDURE' }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'PROCEDURE' }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name;"
             $DropperQuery += "$DropThis`n"
         }
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'INDEX' } | ? { $_.ObjectName -notmatch "PK" }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'INDEX' } | Where-Object { $_.ObjectName -notmatch "PK" }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name;"
             $DropperQuery += "$DropThis`n"
         }
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'SEQUENCE' }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'SEQUENCE' }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name;"
             $DropperQuery += "$DropThis`n"
         }
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'LOB' }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'LOB' }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name;"
             $DropperQuery += "$DropThis`n"
         }
-        foreach ($Item in $SchemaObjects | ? { $_.ObjectType -eq 'TABLE' }) {
-            $Type = $Item | Select -ExpandProperty ObjectType
-            $Name = $Item | Select -ExpandProperty ObjectName
+        foreach ($Item in $SchemaObjects | Where-Object { $_.ObjectType -eq 'TABLE' }) {
+            $Type = $Item | Select-Object -ExpandProperty ObjectType
+            $Name = $Item | Select-Object -ExpandProperty ObjectName
             $DropThis = "DROP $Type $Name CASCADE CONSTRAINTS;"
             $DropperQuery += "$DropThis`n"
         }
