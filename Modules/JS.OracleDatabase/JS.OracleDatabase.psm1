@@ -380,7 +380,7 @@ $SQLFilter;
                 if ($DBUser) {
                     Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -Timeout 300
                 }
             }
 
@@ -2728,11 +2728,11 @@ function Get-OraclePerfReports {
 .ROLE
     Oracle DBA
     #>
-function Use-OracleDB {
+function Open-OracleDB {
     [CmdletBinding(
         DefaultParameterSetName='BySQLQuery',
         SupportsShouldProcess=$true)]
-    [Alias("ora-query")]
+    [Alias("ora-open")]
     Param (
         # It can run the script on several databases at once
         [Parameter(Mandatory=$true,
@@ -2747,20 +2747,21 @@ function Use-OracleDB {
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
+        # Secure String Password
+        [SecureString]$SecurePass,
         # It can run several scripts at once
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
             ParameterSetName='BySQLFile',
             Position=1,
             HelpMessage="Path to SQL file to run on the databases")]
-        [String[]]$SQLScript,
-
+        [String]$SQLScript,
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
             ParameterSetName='BySQLQuery',
             Position=1,
             HelpMessage="SQL query to run on the databases")]
-        [String[]]$SQLQuery,
+        [String]$SQLQuery,
         [Parameter(
             HelpMessage="Dump results to an output file")]
         [String]$DumpFile,
@@ -2852,24 +2853,16 @@ SET COLSEP '|'
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Oracle variables..."
         if (Test-OracleEnv) {
-            if ($PasswordPrompt) {
+            if ($PasswordPrompt -or $SecurePass) {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                if ($DBPass) {
-                    $SecurePass = $DBPass
-                } else {
+                if (-not $SecurePass) {
                     $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
                 }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }        
-            # Parallelism implementation
-            $JobCount = 0
-            $JobTimer=@{}
-            $JobLog=@{}
-            [System.Collections.ArrayList]$TargetQueue = $TargetDB
-            $JobTimeOut = [timespan]::FromSeconds($Timeout)
             foreach ($DBName in $TargetDB) {
                 [String]$GlobalName = Get-oracleNAmes -TargetDB $DBName | Select-Object -ExpandProperty GlobalName
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
@@ -3043,6 +3036,163 @@ exit;
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Thanks for using this script."
     }
+}
+
+
+
+function Use-OracleDB {
+    [CmdletBinding(
+        DefaultParameterSetName='BySQLQuery',
+        SupportsShouldProcess=$true)]
+    [Alias("ora-query")]
+    Param (
+        # It can run the script on several databases at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            Position=0,
+            HelpMessage="One or more Oracle Database names")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Secure String password
+        [SecureString]$SecurePass,
+        # It can run several scripts at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLFile',
+            Position=1,
+            HelpMessage="Path to SQL file to run on the databases")]
+        [String]$SQLScript,
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLQuery',
+            Position=1,
+            HelpMessage="SQL query to run on the databases")]
+        [String]$SQLQuery,
+        [Parameter(
+            HelpMessage="Dump results to an output file")]
+        [String]$DumpFile,
+        [Parameter(HelpMessage="Parallel degree, defaults to 8")]
+        [int]$Parallelism,
+        [Parameter(HelpMessage="Timeout for the job in seconds")]
+        [int]$Timeout,
+        # Switch to force get HTML output
+        [Parameter(
+            HelpMessage="Flags the output to be HTML")]
+        [Switch]$HTML,
+        [Parameter(
+            HelpMessage="Flags the output to be plain text")]
+        [Switch]$PlainText,
+        [Parameter(
+            HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
+        [Switch]$Silent,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin {
+        if (-not $TimeOut) {
+            $JobTimeOut = [timespan]::FromSeconds(300) # Defaults the timeout to 5 minutes
+        }
+        if (-not $Parallelism) {
+            $Parallelism = 4
+        }
+    }
+    Process { 
+            # Parallelism implementation
+            $JobCount = 0
+            $JobTimer=@{}
+            $JobLog=@{}
+            [System.Collections.ArrayList]$TargetQueue = $TargetDB
+            $JobTimeOut = [timespan]::FromSeconds($Timeout)
+            if ($PasswordPrompt -or $SecurePass) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                if (-not $SecurePass) {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
+            }
+            Write-Verbose "Getting Module location"
+            $OraModulePath = Get-Module -Name JS.OracleDatabase | Select-Object -ExpandProperty Path
+            # Process the Queue
+            While ($TargetQueue.Count -gt 0 -or $(Get-Job | Where-Object { $_.Name -imatch "^Query"}).Count -gt 0 ) {
+                Write-Verbose "Database Queue: $TargetQueue | Jobs: $JobCount | Running: $($(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -eq "Running" }).Count)  | Completed: $($(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" }).Count)"
+                # If there are jobs in queue and open slots, launch background job
+                if ($($TargetQueue.Count) -gt 0 -and $JobCount -lt $Parallelism) { 
+                    $DBName = $TargetQueue[0]
+                    # Build Command
+                    $JobArgs = "Open-OracleDB "
+                    foreach ($item in $PSBoundParameters.Keys) {
+                        if ($item -inotin @('Timeout','Parallelism','PasswordPrompt')) {
+                            $JobArgs += "-$item "
+                            if ($item -ieq "TargetDB") {
+                                $JobArgs += "$DBName "
+                            } else {
+                                if ($PSBoundParameters[$item] -notin @('True','False')) {
+                                    $StringValue = [String]$($PSBoundParameters[$item]).Replace('"','`"')
+                                    $JobArgs +="`"$StringValue`" "
+                                }
+                            }
+                        } elseif ($item -ieq "PasswordPrompt") {
+                            $JobArgs += "-SecurePass $SecurePass "
+                        }
+                    }
+                    Write-Verbose "$JobArgs"
+                    # Launch Background job
+                    Start-Job -Name "Query-${DBName}" -ScriptBlock {
+                        Import-Module $args[0]
+                        Invoke-Expression $args[1]
+                     } -ArgumentList $OraModulePath,$JobArgs | Out-Null
+                    $TargetQueue.Remove($DBName)
+                    $JobCount++
+                }    
+                Write-Progress -Activity "Use-OracleDB" -CurrentOperation "Checking Completed/Failed Jobs"
+                Write-Verbose "Completed Jobs: $(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" })"
+                foreach ($JobComplete in $(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" })) { # There are Completed jobs
+                    $JobOutput = Receive-Job -Job $JobComplete
+                    Remove-Job -Job $JobComplete -Force
+                    Write-Verbose "Received completed job: $($JobComplete.Name)"
+                    $JobCount--
+                    $JobOutput | Select-Object -ExcludeProperty RunspaceId
+                } # Job retrieval loop
+                Write-Progress -Activity "Use-OracleDB" -CurrentOperation "Checking Running Jobs "
+                foreach ($JobInProgress in Get-Job "Query*" | Where-Object { $_.State -eq 'Running' } ) { # There are Running jobs
+                    $JobOutput = Receive-Job $JobInProgress -Keep
+                    Write-Verbose "Job Output: $([String]$JobOutput)"
+                    Write-Verbose "Timer contents: $($JobLog[$JobInProgress])"
+                    if ($($JobOutput) -eq $($JobLog[$JobInProgress])) { # If output has not changed since last check
+                        if ($JobTimer[$JobInProgress]) { # If there's a timer
+                            if (($(Get-Date) - $JobTimer[$JobInProgress]) -gt $JobTimeOut) { # If job timed out
+                                Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) hung... Restarting!"
+                                Stop-Job -Name "$($JobInProgress.Name)"
+                                Remove-Job -Name "$($JobInProgress.Name)"
+                                Write-Verbose "$($($($JobInProgress.Name) -split '-')[1])"
+                                $TargetQueue.Add($($($($JobInProgress.Name) -split '-')[1])) | Out-Null
+                                $JobCount -= 1
+                            } else { # If job has not timed out
+                                if (($(Get-Date) - $($JobTimer[$JobInProgress])) -in @(5,10) ) {
+                                    Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) can be hung..."
+                                }
+                            }
+                        } else { # If there's no timer jet
+                            $JobTimer[$JobInProgress] = $(Get-Date)
+                            $JobLog[$JobInProgress] = $JobOutput
+                        }
+                    } else { #If output changed sine last check, update timer
+                        $JobTimer[$JobInProgress] = $(Get-Date)
+                        $JobLog[$JobInProgress] = $JobOutput
+                    }
+                } # There are Running jobs - End
+                Start-Sleep 3
+            }
+        }
+    End {}
 }
 
 <#
