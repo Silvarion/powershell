@@ -733,9 +733,9 @@ $SQLFilter;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -985,9 +985,9 @@ ORDER BY DB_NAME;
                 }
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -1051,9 +1051,9 @@ ORDER BY 1;
                 }
                 Write-Progress -Activity "Gathering $DBName Options and Statuses" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
@@ -1243,9 +1243,9 @@ exit
                 }
                 Write-Progress -Activity "Gathering $DBName Instances" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
 
             }
@@ -1319,9 +1319,9 @@ ORDER BY 1;
                 }
                 Write-Progress -Activity "Gathering $DBName Hosts" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         } else {
@@ -1413,9 +1413,9 @@ $SQLFilter;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
@@ -1481,9 +1481,9 @@ SELECT dbid FROM v$database;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName DBID" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         } else {
@@ -1755,9 +1755,9 @@ AND l.serial# = s.serial#;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         }
@@ -1844,9 +1844,9 @@ and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         }
@@ -1933,9 +1933,9 @@ WHERE t.sql_id='$SqlId'
 ;
 "@
             if ($DBUser) {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -DBuser "$DBUser" -DBPass $DBPass
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBuser "$DBUser" -DBPass $DBPass
             } else {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         }
     }
@@ -2005,9 +2005,9 @@ WHERE ROWNUM = 1;
 "@
             foreach ($DBName in $TargetDB) {
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUSer "$DBUser" -DBPass "$DBPass"
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUSer "$DBUser" -DBPass "$DBPass"
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
         }
@@ -2105,7 +2105,7 @@ function Add-OracleDBLink {
         #Write-Verbose $Query
         Remove-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName -ErrorAction SilentlyContinue
         #Write-Verbose $Query
-        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
             if ($line -imatch "^ORA-") {
@@ -2277,7 +2277,7 @@ function Remove-OracleDBLink {
     DROP PROCEDURE DROP_DB_LINK;
 "@
         #Write-Verbose $Query
-        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
             if ($line -imatch "^ORA-") {
@@ -3080,7 +3080,7 @@ function Use-OracleDB {
         [Parameter(HelpMessage="Parallel degree, defaults to 8")]
         [int]$Parallelism,
         [Parameter(HelpMessage="Timeout for the job in seconds")]
-        [int]$Timeout,
+        [int]$Timeout = 300,
         # Switch to force get HTML output
         [Parameter(
             HelpMessage="Flags the output to be HTML")]
