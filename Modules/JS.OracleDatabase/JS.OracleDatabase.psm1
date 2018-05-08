@@ -378,9 +378,9 @@ $SQLFilter;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -Timeout 300
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -Timeout 300
                 }
             }
 
@@ -470,9 +470,9 @@ ORDER BY 1,2,3;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -559,9 +559,9 @@ $SQLFilter;
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName DB Links" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
 
@@ -640,9 +640,9 @@ ORDER BY 1;
                 }
                 Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -2786,6 +2786,7 @@ function Open-OracleDB {
     }
     Process{
         if($HTML) {
+            # 
             # Oracle HTML Header that formats HTML output from the Oracle Database
             $OracleHtmlHeader = @'
 <html>
@@ -2896,6 +2897,7 @@ SET COLSEP '|'
                     $Output = &"sqlplus" "-S" "$DBUser/$DBPass@$DBName" "@$toExecute"
                 } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running on Command Mode"
+                    Write-Debug "[OPEN-ORACLEDB:$($MyInvocation.ScriptLineNumber)] $SQLQuery"
                     if ($HTML) {
                         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Adding HTML setting to the command line"
                         $SQLQuery = @"
@@ -3141,13 +3143,16 @@ function Use-OracleDB {
                             }
                         } elseif ($item -ieq "PasswordPrompt") {
                             $JobArgs += "-SecurePass $SecurePass "
+                        } elseif ($item -ieq "SQLQuery") {
+                            $JobArgs += "-SQLQuery '$($SQLQuery.Replace('$','`$').Replace('``','`'))' "
+                            Write-Verbose "-SQLQuery '$($SQLQuery.Replace('$','`$').Replace('``','`'))' "
                         }
                     }
                     Write-Verbose "$JobArgs"
                     # Launch Background job
                     Start-Job -Name "Query-${DBName}" -ScriptBlock {
-                        Import-Module $args[0]
-                        Invoke-Expression $args[1]
+                        Import-Module "$($args[0])"
+                        Invoke-Expression $([String]$args[1]).Replace('$','`$').Replace('``','`')
                      } -ArgumentList $OraModulePath,$JobArgs | Out-Null
                     $TargetQueue.Remove($DBName)
                     $JobCount++
