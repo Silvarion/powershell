@@ -395,7 +395,7 @@ $SQLFilter;
 .DESCRIPTION
    This function returns the Privileges for users and roles in an Oracle DB
 .EXAMPLE
-    Get-OracleSessions -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
+    Get-OraclePrivileges -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 .ROLE
@@ -719,6 +719,7 @@ function Get-OracleSessions {
             $Query = @"
 SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceName"
+    , logon_time AS "LogonTime"
     , username AS "UserName"
     , status AS "Status"
     , osuser AS "OSUser"
