@@ -612,6 +612,10 @@ function Get-OracleServices {
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             $Query = @'
+COLUMN "ServiceName" FORMAT A30
+COLUMN "ServiceNodes" FORMAT A30
+COLUMN "Status" FORMAT A15
+COLUMN "EditionName" FORMAT A30
 SELECT asrv.NAME AS "ServiceName", LISTAGG(asrv.inst_id,', ') WITHIN GROUP (ORDER BY srv.inst_id) AS "ServiceNodes", nvl2(asrv.NAME,'ACTIVE','INACTIVE') AS "Status", NVL(dsv.EDITION,'- NO EDITION -') AS "EditionName"
 FROM gv$services srv
 LEFT OUTER JOIN gv$active_services asrv 
@@ -2844,7 +2848,7 @@ a {
         if (-not $PlainText -and -not $HTML) {
             $PipelineSettings=@"
 SET PAGESIZE 50000
-SET LINESIZE 32767
+SET LINESIZE 32765
 SET FEEDBACK OFF
 SET VERIFY OFF
 SET WRAP OFF
