@@ -3107,8 +3107,10 @@ function Use-OracleDB {
             $JobTimeOut = [timespan]::FromSeconds(300) # Defaults the timeout to 5 minutes
         }
         if (-not $Parallelism) {
-            $Parallelism = 4
+            $Parallelism = 1
         }
+        Stop-Job * -ErrorAction SilentlyContinue -Force
+        Remove-Job * -ErrorAction SilentlyContinue -Force
     }
     Process { 
             # Parallelism implementation
