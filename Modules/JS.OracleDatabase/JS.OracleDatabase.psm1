@@ -185,7 +185,9 @@ function Get-OracleDBInfo {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism
+        [int]$Parallelism = 1
     )
     Process {
         if (Test-OracleEnv) {
@@ -3109,7 +3111,7 @@ function Use-OracleDB {
         if (-not $Parallelism) {
             $Parallelism = 1
         }
-        Stop-Job * -ErrorAction SilentlyContinue -Force
+        Stop-Job * -ErrorAction SilentlyContinue
         Remove-Job * -ErrorAction SilentlyContinue -Force
     }
     Process { 
