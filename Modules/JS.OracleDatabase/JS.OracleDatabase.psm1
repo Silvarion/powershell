@@ -21,9 +21,6 @@ if (Test-OracleEnv) {
     <Some commands>
 }
 .FUNCTIONALITY
-    This function looks for the ORACLE_HOME environment variable and inside looks for Oracle binaries.
-.ROLE
-    Oracle DBA
 #>
 function Test-OracleEnv {
     [CmdletBinding()]
@@ -161,139 +158,6 @@ function Ping-OracleDB {
 }
 
 <#
-.Synopsis
-    List, create or drop restore points
-.DESCRIPTION
-    This functions lists, creates or drops restore points in a oracle database
-.EXAMPLE
-    Edit-OracleRestorePoint -TargetDB myorcl -List
-.EXAMPLE
-    Edit-OracleRestorePoint -TargetDB myorcl -Create -RPName myRestorePoint -Guaranteed
-.EXAMPLE
-    Edit-OracleRestorePoint -TargetDB myorcl -Drop -RPName myRestorePoint
-.FUNCTIONALITY
-    This functions uses SQL*Plus and the v`$restore_point data dictionary view to list or verify restore point names.
-.ROLE
-    OracleDBA
-    #>
-    function Edit-OracleRestorePoint {
-        [CmdletBinding()]
-        [Alias("ora-restorepoint")]
-        Param(
-            [String[]]$TargetDB,
-            [Switch]$Create,
-            [Switch]$Drop,
-            [Switch]$List,
-            [Switch]$Guaranteed,
-            [String]$RPName
-        )
-        # Variable initialization
-        if ($Guaranteed) {
-            $GuaranteedSQL = " GUARANTEE FLASHBACK DATABASE"
-        }
-        # Force default create if no flag is provided
-        if (-not ($Create -or $Drop -or $List)) {
-            $List = $true
-        }
-        # Execute
-        if ($List) {
-            Use-OracleDB -TargetDB $TargetDB -SQLQuery "SELECT name AS `"GRPName`", scn AS `"GRPSCN`", time AS `"GRPTime`", guaranteed storage_size AS `"GRPSize`" FROM v`$restore_point;" | Format-Table -AutoSize
-        } elseif ($Drop) {
-            Use-OracleDB -TargetDB $DBName -SQLQuery "DROP RESOTRE POINT $($_.GRPName);" -PlainText
-        } elseif ($Create) {
-            Use-OracleDB -TargetDB $TargetDB -SQLQuery "CREATE RESTORE POINT GRP_TRN_REFRESH_$(Get-Date -UFormat "%Y%m%d")$GuaranteedSQL;" -PlainText
-        }
-    }
-
-<#
-.Synopsis
-   List restore points
-.DESCRIPTION
-   This functions lists the restore points in a oracle database
-.EXAMPLE
-   Show-OracleRestorePoint -TargetDB myorcl
-.NOTES
-    This is my first Module for PowerShell, so any comments and suggestions are more than welcome.
-.FUNCTIONALITY
-    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
-.ROLE
-    OracleDBA
-    #>
-function Show-OracleRestorePoint {
-        [CmdletBinding()]
-        [Alias("ora-rplist")]
-        Param(
-            [Parameter(Mandatory=$True,
-            ValueFromPipeline=$True,
-            Position=1)]
-            [String[]]$TargetDB,
-            [String]$RPName
-        )
-        # Execute
-        Edit-OracleRestorePoint -TargetDB $TargetDB -List
-}
-
-<#
-.Synopsis
-   Create restore points
-.DESCRIPTION
-   This functions creates a restore points in a oracle database
-.EXAMPLE
-   New-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint
-.EXAMPLE
-   New-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint -Guaranteed
-.FUNCTIONALITY
-    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
-.ROLE
-    OracleDBA
-#>
-function New-OracleRestorePoint {
-        [CmdletBinding()]
-        [Alias("ora-rpcreate")]
-        Param(
-            [Parameter(Mandatory=$True,
-            ValueFromPipeline=$True,
-            Position=1)]
-            [String[]]$TargetDB,
-            [Parameter(Mandatory=$true)]
-            [String]$RPName
-        )
-        # Execute
-        Edit-OracleRestorePoint -TargetDB $TargetDB -Create -RPName $RPName
-}
-
-<#
-.Synopsis
-   Drop restore points
-.DESCRIPTION
-   This functions drops a restore points in a oracle database
-.EXAMPLE
-   Remove-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint
-.EXAMPLE
-   Remove-OracleRestorePoint -TargetDB myorcl -RPName myRestorePoint -All
-.FUNCTIONALITY
-    This functions relies on the Edit-OracleRestorePoints function to implement its functionality
-.ROLE
-    OracleDBA
-#>
-function Remove-OracleRestorePoint {
-        [CmdletBinding()]
-        [Alias("ora-rpdrop")]
-        Param(
-            [Parameter(Mandatory=$True,
-            ValueFromPipeline=$True,
-            Position=1)]
-            [String[]]$TargetDB,
-            [Parameter(Mandatory=$true)]
-            [String]$RPName,
-            [Switch]$All
-        )
-        # Execute
-        Edit-OracleRestorePoint -TargetDB $TargetDB -Drop -RPName $RPName
-}
-
-
-<#
 .Synopsys
     Returns a DB object
 .DESCRIPTION
@@ -321,8 +185,7 @@ function Get-OracleDBInfo {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
-    )
+        [Switch]$PasswordPrompt    )
     Process {
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
@@ -461,7 +324,9 @@ function Get-OracleObjects {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin {
     }
@@ -511,16 +376,12 @@ SELECT object_type AS "ObjectType"
 FROM dba_objects_ae
 $SQLFilter;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Timeout 300 -Parallelism $Parallelism
             }
 
-            Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -531,7 +392,7 @@ $SQLFilter;
 .DESCRIPTION
    This function returns the Privileges for users and roles in an Oracle DB
 .EXAMPLE
-    Get-OracleSessions -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
+    Get-OraclePrivileges -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
 .FUNCTIONALITY
    This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
 .ROLE
@@ -553,7 +414,9 @@ function Get-OraclePrivileges {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin {
     }
@@ -608,15 +471,11 @@ FROM (
 $SQLFilter
 ORDER BY 1,2,3;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
             }
-            Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -649,7 +508,9 @@ function Get-OracleDBLinks {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin {
     }
@@ -697,20 +558,14 @@ SELECT db_link AS `"LinkName`"
 FROM dba_db_links
 $SQLFilter;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName DB Links" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
             }
-
-            Write-Progress -Activity "Gathering $DBName DB Links" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
-
 
 <#
 .Synopsis
@@ -735,7 +590,9 @@ function Get-OracleServices {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Process {
         if (Test-OracleEnv) {
@@ -753,6 +610,10 @@ function Get-OracleServices {
             }
             Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             $Query = @'
+COLUMN "ServiceName" FORMAT A30
+COLUMN "ServiceNodes" FORMAT A30
+COLUMN "Status" FORMAT A15
+COLUMN "EditionName" FORMAT A30
 SELECT asrv.NAME AS "ServiceName", LISTAGG(asrv.inst_id,', ') WITHIN GROUP (ORDER BY srv.inst_id) AS "ServiceNodes", nvl2(asrv.NAME,'ACTIVE','INACTIVE') AS "Status", NVL(dsv.EDITION,'- NO EDITION -') AS "EditionName"
 FROM gv$services srv
 LEFT OUTER JOIN gv$active_services asrv 
@@ -764,29 +625,24 @@ GROUP BY asrv.NAME, nvl2(asrv.NAME,'ACTIVE','INACTIVE'), dsv.EDITION
 HAVING asrv.NAME IS NOT NULL
 ORDER BY 1;
 '@
-            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
-            foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    if (-not $DBPass) {
-                        $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
-                        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
-                        $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-                    }
-                    if ($DBUser -eq "SYS") {
-                        $LoginString += " AS SYSDBA"
-                    }
+            if ($DBUser) {
+                if (-not $DBPass) {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
+                    $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
+                if ($DBUser -eq "SYS") {
+                    $LoginString += " AS SYSDBA"
+                }
 
-                } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            } else {
+                $LoginString = "/@$DBName"
             }
-            Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "$DBName done" -PercentComplete 85
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
+            }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -819,7 +675,9 @@ function Get-OracleSessions {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin {
     }
@@ -861,6 +719,7 @@ function Get-OracleSessions {
 SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceName"
     , username AS "UserName"
+    , logon_time AS "LogonTime"
     , status AS "Status"
     , osuser AS "OSUser"
     , machine AS "Machine"
@@ -871,15 +730,11 @@ SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
 FROM gv`$session
 $SQLFilter;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
                 }
-            }
-            Write-Progress -Activity "Gathering $DBName Sessions" -CurrentOperation "$DBName done" -PercentComplete 85
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
 }
@@ -1126,9 +981,9 @@ ORDER BY DB_NAME;
                 }
                 Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Analizing $DBName output" -PercentComplete 35
                 if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
+                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
                 }
             }
             Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "$DBName done" -PercentComplete 85
@@ -1160,7 +1015,9 @@ function Get-OracleOptions {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-        [Switch]$PasswordPrompt
+        [Switch]$PasswordPrompt,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Process {
         if (Test-OracleEnv) {
@@ -1183,19 +1040,16 @@ SELECT comp_name AS "ComponentName"
 FROM dba_registry
 ORDER BY 1;
 '@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
-                if ($DBUser) {
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Options and Statuses" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
+            if ($DBUser) {
+                $LoginString = "${DBUser}/${DBPass}@${DBName}"
+            } else {
+                $LoginString = "/@$DBName"
+            }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -1353,7 +1207,9 @@ function Get-OracleInstances {
         [Switch]$Table,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{}
     Process{
@@ -1376,18 +1232,10 @@ SELECT instance_number AS "InstanceNumber"
 FROM gv$instance ORDER BY 1;
 exit
 '@
-            foreach ($DBName in $TargetDB) {
                 if ($DBUser) {
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
+                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Instances" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+                    Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
 
             }
         } else {
@@ -1429,7 +1277,9 @@ function Get-OracleHosts {
         [Switch]$Table,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{}
     Process{
@@ -1452,18 +1302,10 @@ SELECT host_name AS "HostName"
 FROM gv$instance
 ORDER BY 1;
 '@
-            foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Hosts" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1507,7 +1349,9 @@ function Get-OracleUsers {
         [Switch]$Table,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{}
     Process{
@@ -1551,13 +1395,10 @@ SELECT username AS "UserName"
 FROM dba_users
 $SQLFilter;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
         } else {
@@ -1599,7 +1440,9 @@ function Get-OracleDBID {
         [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{}
     Process{
@@ -1619,13 +1462,10 @@ function Get-OracleDBID {
             $Query =  @'
 SELECT dbid FROM v$database;
 '@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName DBID" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1691,11 +1531,6 @@ function Get-OracleSnapshot {
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
 			Write-Debug "Database pinged successfully"
-            if ($DBUser) {
-                $LoginString = "${DBUser}/${DBPass}@${DBName}"
-            } else {
-                $LoginString = "/@$DBName"
-            }
             if ($Mark -eq "start") {
                 $StrTimeStamp = $TimeStamp.AddSeconds(50).ToString("yyyy-MM-dd HH:mm:ss")
                 # Using here-string to pipe the SQL query to SQL*Plus
@@ -1849,7 +1684,9 @@ function Get-OracleLongOperations {
         [int]$SecondsLimit = 0,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{
         if ($UserName) {
@@ -1893,13 +1730,10 @@ AND SOFAR/TOTALWORK < 1
 AND l.SID = s.SID
 AND l.serial# = s.serial#;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
             }
         }
     }
@@ -1935,7 +1769,9 @@ function Get-OracleLongRunQueries {
         [int]$SecondsLimit = 0,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{
         if ($UserName) {
@@ -1982,13 +1818,10 @@ and status='ACTIVE'
 $UserFilter
 and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 "@
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
             }
         }
     }
@@ -2074,9 +1907,9 @@ WHERE t.sql_id='$SqlId'
 ;
 "@
             if ($DBUser) {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query -DBuser "$DBUser" -DBPass $DBPass
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBuser "$DBUser" -DBPass $DBPass
             } else {
-                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         }
     }
@@ -2113,7 +1946,9 @@ function Get-OracleDBVersion {
         [Switch]$PasswordPrompt,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
-        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log",
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Begin{
     }
@@ -2144,12 +1979,10 @@ FROM (
 	)
 WHERE ROWNUM = 1;
 "@
-            foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query -DBUSer "$DBUser" -DBPass "$DBPass"
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query
-                }
+            if ($DBUser) {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUSer "$DBUser" -DBPass "$DBPass"
+            } else {
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
             }
         }
     }
@@ -2199,7 +2032,9 @@ function Add-OracleDBLink {
         # DB Link Host (Target database)
         [Parameter(Mandatory = $true,
             HelpMessage="DB Link target databasse name/descriptor")]
-        [String]$LinkTarget
+        [String]$LinkTarget,
+        # Parallelism Degree
+        [int]$Parallelism = 1
     )
     Process {
         if ($LinkPasswordPrompt) {
@@ -2246,7 +2081,7 @@ function Add-OracleDBLink {
         #Write-Verbose $Query
         Remove-OracleDBLink -TargetDB $DBName -LinkName $LinkName -SchemaName $SchemaName -ErrorAction SilentlyContinue
         #Write-Verbose $Query
-        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
             if ($line -imatch "^ORA-") {
@@ -2418,7 +2253,7 @@ function Remove-OracleDBLink {
     DROP PROCEDURE DROP_DB_LINK;
 "@
         #Write-Verbose $Query
-        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query -PlainText *>&1
+        $Output = Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -PlainText *>&1
         [String]$ResultText=""
         foreach ($line in $Output) {
             if ($line -imatch "^ORA-") {
@@ -2869,11 +2704,11 @@ function Get-OraclePerfReports {
 .ROLE
     Oracle DBA
     #>
-function Use-OracleDB {
+function Open-OracleDB {
     [CmdletBinding(
         DefaultParameterSetName='BySQLQuery',
         SupportsShouldProcess=$true)]
-    [Alias("ora-query")]
+    [Alias("ora-open")]
     Param (
         # It can run the script on several databases at once
         [Parameter(Mandatory=$true,
@@ -2888,20 +2723,21 @@ function Use-OracleDB {
         # Flag to ask for a password
         [Alias("p")]
         [Switch]$PasswordPrompt,
+        # Secure String Password
+        [SecureString]$SecurePass,
         # It can run several scripts at once
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
             ParameterSetName='BySQLFile',
             Position=1,
             HelpMessage="Path to SQL file to run on the databases")]
-        [String[]]$SQLScript,
-
+        [String]$SQLScript,
         [Parameter(Mandatory=$true,
             ValueFromPipeline=$true,
             ParameterSetName='BySQLQuery',
             Position=1,
             HelpMessage="SQL query to run on the databases")]
-        [String[]]$SQLQuery,
+        [String]$SQLQuery,
         [Parameter(
             HelpMessage="Dump results to an output file")]
         [String]$DumpFile,
@@ -2926,6 +2762,7 @@ function Use-OracleDB {
     }
     Process{
         if($HTML) {
+            # 
             # Oracle HTML Header that formats HTML output from the Oracle Database
             $OracleHtmlHeader = @'
 <html>
@@ -2982,7 +2819,7 @@ a {
         if (-not $PlainText -and -not $HTML) {
             $PipelineSettings=@"
 SET PAGESIZE 50000
-SET LINESIZE 32767
+SET LINESIZE 32765
 SET FEEDBACK OFF
 SET VERIFY OFF
 SET WRAP OFF
@@ -2993,24 +2830,16 @@ SET COLSEP '|'
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Oracle variables..."
         if (Test-OracleEnv) {
-            if ($PasswordPrompt) {
+            if ($PasswordPrompt -or $SecurePass) {
                 if ($DBUser.Length -eq 0) {
                     $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
                 }
-                if ($DBPass) {
-                    $SecurePass = $DBPass
-                } else {
+                if (-not $SecurePass) {
                     $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
                 }
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }        
-            # Parallelism implementation
-            $JobCount = 0
-            $JobTimer=@{}
-            $JobLog=@{}
-            [System.Collections.ArrayList]$TargetQueue = $TargetDB
-            $JobTimeOut = [timespan]::FromSeconds($Timeout)
             foreach ($DBName in $TargetDB) {
                 [String]$GlobalName = Get-oracleNAmes -TargetDB $DBName | Select-Object -ExpandProperty GlobalName
                 Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Checking Run-Mode..."
@@ -3044,6 +2873,7 @@ SET COLSEP '|'
                     $Output = &"sqlplus" "-S" "$DBUser/$DBPass@$DBName" "@$toExecute"
                 } elseif ($PSCmdlet.ParameterSetName -eq 'BySQLQuery') {
                     Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Running on Command Mode"
+                    Write-Debug "[OPEN-ORACLEDB:$($MyInvocation.ScriptLineNumber)] $SQLQuery"
                     if ($HTML) {
                         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Adding HTML setting to the command line"
                         $SQLQuery = @"
@@ -3184,6 +3014,168 @@ exit;
         }
         Write-Progress -Activity "Oracle DB Query Run" -CurrentOperation "Thanks for using this script."
     }
+}
+
+
+
+function Use-OracleDB {
+    [CmdletBinding(
+        DefaultParameterSetName='BySQLQuery',
+        SupportsShouldProcess=$true)]
+    [Alias("ora-query")]
+    Param (
+        # It can run the script on several databases at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ValueFromPipelineByPropertyName=$true,
+            Position=0,
+            HelpMessage="One or more Oracle Database names")]
+        [String[]]$TargetDB,
+        # Username if required
+        [Alias("u")]
+        [String]$DBUser,
+        # Flag to ask for a password
+        [Alias("p")]
+        [Switch]$PasswordPrompt,
+        # Secure String password
+        [SecureString]$SecurePass,
+        # It can run several scripts at once
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLFile',
+            Position=1,
+            HelpMessage="Path to SQL file to run on the databases")]
+        [String]$SQLScript,
+        [Parameter(Mandatory=$true,
+            ValueFromPipeline=$true,
+            ParameterSetName='BySQLQuery',
+            Position=1,
+            HelpMessage="SQL query to run on the databases")]
+        [String]$SQLQuery,
+        [Parameter(
+            HelpMessage="Dump results to an output file")]
+        [String]$DumpFile,
+        [Parameter(HelpMessage="Parallel degree, defaults to 8")]
+        [int]$Parallelism,
+        [Parameter(HelpMessage="Timeout for the job in seconds")]
+        [int]$Timeout = 300,
+        # Switch to force get HTML output
+        [Parameter(
+            HelpMessage="Flags the output to be HTML")]
+        [Switch]$HTML,
+        [Parameter(
+            HelpMessage="Flags the output to be plain text")]
+        [Switch]$PlainText,
+        [Parameter(
+            HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
+        [Switch]$Silent,
+        # Switch to turn on the error logging
+        [Switch]$ErrorLog,
+        [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
+    )
+    Begin {
+        if (-not $TimeOut) {
+            $JobTimeOut = [timespan]::FromSeconds(300) # Defaults the timeout to 5 minutes
+        }
+        if (-not $Parallelism) {
+            $Parallelism = 4
+        }
+        Stop-Job * -ErrorAction SilentlyContinue
+        Remove-Job * -ErrorAction SilentlyContinue -Force
+    }
+    Process { 
+            # Parallelism implementation
+            $JobCount = 0
+            $JobTimer=@{}
+            $JobLog=@{}
+            [System.Collections.ArrayList]$TargetQueue = $TargetDB
+            $JobTimeOut = [timespan]::FromSeconds($Timeout)
+            if ($PasswordPrompt -or $SecurePass) {
+                if ($DBUser.Length -eq 0) {
+                    $DBUser = Read-Host -Prompt "Please enter the Username to connect to the DB"
+                }
+                if (-not $SecurePass) {
+                    $SecurePass = Read-Host -AsSecureString -Prompt "Please enter the password for User $DBUser"
+                }
+            }
+            Write-Verbose "Getting Module location"
+            $OraModulePath = Get-Module -Name JS.OracleDatabase | Select-Object -ExpandProperty Path
+            # Process the Queue
+            While ($TargetQueue.Count -gt 0 -or $(Get-Job | Where-Object { $_.Name -imatch "^Query"}).Count -gt 0 ) {
+                Write-Verbose "Database Queue: $TargetQueue | Jobs: $JobCount | Running: $($(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -eq "Running" }).Count)  | Completed: $($(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" }).Count)"
+                # If there are jobs in queue and open slots, launch background job
+                if ($($TargetQueue.Count) -gt 0 -and $JobCount -lt $Parallelism) { 
+                    $DBName = $TargetQueue[0]
+                    # Build Command
+                    $JobArgs = "Open-OracleDB "
+                    foreach ($item in $PSBoundParameters.Keys) {
+                        if ($item -inotin @('Timeout','Parallelism','PasswordPrompt')) {
+                            $JobArgs += "-$item "
+                            if ($item -ieq "TargetDB") {
+                                $JobArgs += "$DBName "
+                            } else {
+                                if ($PSBoundParameters[$item] -notin @('True','False')) {
+                                    $StringValue = [String]$($PSBoundParameters[$item]).Replace('"','`"')
+                                    $JobArgs +="`"$StringValue`" "
+                                }
+                            }
+                        } elseif ($item -ieq "PasswordPrompt") {
+                            $JobArgs += "-SecurePass $SecurePass "
+                        } elseif ($item -ieq "SQLQuery") {
+                            $JobArgs += "-SQLQuery '$($SQLQuery.Replace('$','`$').Replace('``','`'))' "
+                            Write-Verbose "-SQLQuery '$($SQLQuery.Replace('$','`$').Replace('``','`'))' "
+                        }
+                    }
+                    Write-Verbose "$JobArgs"
+                    # Launch Background job
+                    Start-Job -Name "Query-${DBName}" -ScriptBlock {
+                        Import-Module "$($args[0])"
+                        Invoke-Expression $([String]$args[1]).Replace('$','`$').Replace('``','`')
+                     } -ArgumentList $OraModulePath,$JobArgs | Out-Null
+                    $TargetQueue.Remove($DBName)
+                    $JobCount++
+                }    
+                Write-Progress -Activity "Use-OracleDB" -CurrentOperation "Checking Completed/Failed Jobs"
+                Write-Verbose "Completed Jobs: $(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" })"
+                foreach ($JobComplete in $(Get-Job | Where-Object { $_.Name -imatch "^Query" -and $_.State -imatch "Completed|Failed" })) { # There are Completed jobs
+                    $JobOutput = Receive-Job -Job $JobComplete
+                    Remove-Job -Job $JobComplete -Force
+                    Write-Verbose "Received completed job: $($JobComplete.Name)"
+                    $JobCount--
+                    $JobOutput | Select-Object -ExcludeProperty RunspaceId
+                } # Job retrieval loop
+                Write-Progress -Activity "Use-OracleDB" -CurrentOperation "Checking Running Jobs "
+                foreach ($JobInProgress in Get-Job "Query*" | Where-Object { $_.State -eq 'Running' } ) { # There are Running jobs
+                    $JobOutput = Receive-Job $JobInProgress -Keep
+                    Write-Verbose "Job Output: $([String]$JobOutput)"
+                    Write-Verbose "Timer contents: $($JobLog[$JobInProgress])"
+                    if ($($JobOutput) -eq $($JobLog[$JobInProgress])) { # If output has not changed since last check
+                        if ($JobTimer[$JobInProgress]) { # If there's a timer
+                            if (($(Get-Date) - $JobTimer[$JobInProgress]) -gt $JobTimeOut) { # If job timed out
+                                Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) hung... Restarting!"
+                                Stop-Job -Name "$($JobInProgress.Name)"
+                                Remove-Job -Name "$($JobInProgress.Name)"
+                                Write-Verbose "$($($($JobInProgress.Name) -split '-')[1])"
+                                $TargetQueue.Add($($($($JobInProgress.Name) -split '-')[1])) | Out-Null
+                                $JobCount -= 1
+                            } else { # If job has not timed out
+                                if (($(Get-Date) - $($JobTimer[$JobInProgress])) -in @(5,10) ) {
+                                    Write-Warning "[$(Get-Date)] Job $($JobInProgress.Name) can be hung..."
+                                }
+                            }
+                        } else { # If there's no timer jet
+                            $JobTimer[$JobInProgress] = $(Get-Date)
+                            $JobLog[$JobInProgress] = $JobOutput
+                        }
+                    } else { #If output changed sine last check, update timer
+                        $JobTimer[$JobInProgress] = $(Get-Date)
+                        $JobLog[$JobInProgress] = $JobOutput
+                    }
+                } # There are Running jobs - End
+                Start-Sleep 3
+            }
+        }
+    End {}
 }
 
 <#
