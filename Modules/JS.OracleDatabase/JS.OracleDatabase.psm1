@@ -593,12 +593,17 @@ function Get-OraclePrivileges {
                 }
             }
             $Query = @"
-SELECT grantee AS "UserName", method AS "GrantMethod", privilege AS "Privilege"
+SELECT priv_type AS "PrivType", grantee AS "UserName", method AS "GrantMethod", privilege AS "Privilege", object AS "Object"
 FROM (
-    SELECT NVL(drp.grantee,dsp.grantee) AS grantee, NVL(drp.granted_role,'-- DIRECT GRANT --') AS method, dsp.privilege AS privilege
+    SELECT 'SYSTEM' AS priv_type, NVL(drp.grantee,dsp.grantee) AS grantee, NVL2(drp.granted_role,'ROLE: '||drp.granted_role,'DIRECT GRANT') AS method, dsp.privilege AS privilege, 'N/A' AS object
     FROM dba_sys_privs dsp
     LEFT OUTER JOIN dba_role_privs drp
-      ON (dsp.grantee = drp.granted_role)
+        ON (dsp.grantee = drp.granted_role)
+    UNION ALL
+    SELECT 'OBJECT' AS priv_type, NVL(drp.grantee,dtp.grantee) AS grantee, NVL2(drp.granted_role,'ROLE: '||drp.granted_role,'DIRECT GRANT') AS method, dtp.privilege AS privilege, owner||'.'||table_name AS object
+    FROM dba_tab_privs dtp
+    LEFT OUTER JOIN dba_role_privs drp 
+        ON (dtp.grantee = drp.granted_role)
 )
 $SQLFilter
 ORDER BY 1,2,3;
