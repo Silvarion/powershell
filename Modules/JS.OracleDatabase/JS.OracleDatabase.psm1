@@ -202,7 +202,6 @@ function Get-OracleDBInfo {
             }
             foreach ($DBName in $TargetDB) {
                 Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Pinging database" -PercentComplete 10
-                if (Ping-OracleDB -TargetDB $TargetDB) {
                     Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Querying database" -PercentComplete 20
                     if ($DBUser) {
                         if (-not $DBPass) {
@@ -218,78 +217,29 @@ function Get-OracleDBInfo {
                     } else {
                         $LoginString = "/@$DBName"
                     }
-                    $Output = @'
+                    $Query = @'
 SET LINESIZE 9999
-SET PAGESIZE 0
-SET HEADING OFF
+SET PAGESIZE 9999
 SET FEEDBACK OFF
-COLUMN unique_name FORMAT a11
-COLUMN global_name FORMAT a11
-SELECT dbid FROM v$database;
-SELECT db_unique_name FROM v$database;
-SELECT global_name FROM global_name;
-SELECT listagg(instance_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
-SELECT listagg(host_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance;
-SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE NAME NOT LIKE 'SYS%';
-SELECT listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%';
-SELECT listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
-'@ | &"sqlplus" "-S" "$LoginString"
-                    Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Analysing output" -PercentComplete 50
-                    $ErrorInOutput=$false
-                    foreach ($Line in $Output) {
-                        if ($Line.Contains("ORA-")) {
-                            $ErrorInOutput=$true
-                            $Line = "$($Line.Substring(0,25))..."
-                            $DBProps=[ordered]@{
-                                [String]'EndPoint'=[String]$DBName
-                                [String]'DBID'=""
-                                [String]'GlobalName'=""
-                                [String]'UniqueName'=""
-                                [String]'InstanceName'=""
-                                [String]'HostName'=""
-                                [String]'ActiveServices'=""
-                                [String]'Services'=""
-                                [String]'Users'=""
-                                [String]'ErrorMsg'=$Line
-                            }
-                            $DBObj = New-Object -TypeName PSOBject -Property $DBProps
-                            Write-Output $DBObj
-                            Break
-                        }
-                    }
-                    if (-not $ErrorInOutput) {
-                        Write-Progress -Activity "Gathering $DBName information" -CurrentOperation "Building output object" -PercentComplete 85
-                        $DBProps = [ordered]@{
-                            [String]'EndPoint'=$DBName
-                            [String]'DBID'=$Output[0]
-                            [String]'UniqueName'=$Output[1]
-                            [String]'GlobalName'=$Output[2]
-                            [String]'Instances'=$Output[3]
-                            [String]'Hosts'=$Output[4]
-                            [String]'ActiveServices'=$Output[5]
-                            [String]'Services'=$Output[6]
-                            [String]'Users'=$Output[7]
-                            [String]'ErrorMsg'=""
-                        }
-                        $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                        Write-Output $DBObj
-                    }
-                } else {
-                    $DBProps = [ordered]@{
-                        [String]'EndPoint'=[String]$DBName
-                        [String]'DBID'=""
-                        [String]'GlobalName'=""
-                        [String]'UniqueName'=""
-                        [String]'InstanceName'=""
-                        [String]'HostName'=""
-                        [String]'ActiveServices'=""
-                        [String]'Services'=""
-                        [String]'Users'=""
-                        [String]'ErrorMsg'=[String]$(Ping-OracleDB -TargetDB $TargetDB -Full | Select-Object -ExpandProperty PingResult)
-                    }
-                    $DBObj=New-Object -TypeName PSObject -Property $DBProps
-                    Write-Output $DBObj
-                }
+COLUMN "DatabaseItem" FORMAT a50
+COLUMN "Value" FORMAT a200
+SELECT 'DBID' AS "DatabaseItem", TO_CHAR(dbid) AS "Value" FROM v$database
+UNION ALL
+SELECT 'UNIQUE/CONTAINER NAME', db_unique_name FROM v$database
+UNION ALL
+SELECT 'GLOBAL/PLUGGABLE NAME', global_name FROM global_name
+UNION ALL
+SELECT 'INSTANCES', listagg(instance_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance
+UNION ALL
+SELECT 'HOSTS', listagg(host_name,',') WITHIN GROUP (ORDER BY 1) FROM gv$instance
+UNION ALL
+SELECT 'ACTIVE SERVICES', listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$active_services WHERE NAME NOT LIKE 'SYS%'
+UNION ALL
+SELECT 'ALL SERVICES', listagg(NAME,',') WITHIN GROUP (ORDER BY 1) FROM v$services WHERE NAME NOT LIKE 'SYS%'
+UNION ALL
+SELECT 'USERS', listagg(USERNAME,',') WITHIN GROUP (ORDER BY 1) FROM dba_users WHERE USERNAME NOT LIKE 'SYS%';
+'@
+                Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
