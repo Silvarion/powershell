@@ -3357,15 +3357,21 @@ function Test-OracleHealth {
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Checking $DBName Health Status" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                     $GeneralInfoQuery = @'
-SELECT 'DATABASE NAME' AS "AttributeName", db_unique_name AS "Value" FROM v$database
+SELECT 'Unique/Container Name' AS "AttributeName", db_unique_name AS "Value" FROM v$database
 UNION ALL
-SELECT 'NUMBER OF INSTANCES', TO_CHAR(MAX(inst_id)) FROM gv$instance
+SELECT 'Global/Pluggable Name', global_name FROm global_name
 UNION ALL
-SELECT 'DATABASE HOSTS', listagg(host_name,', ') WITHIN GROUP(ORDER BY inst_id) FROM gv$instance
+SELECT 'Number of Instances', TO_CHAR(MAX(inst_id)) FROM gv$instance
 UNION ALL
-SELECT 'DATA DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_CREATE_FILE_DEST'
+SELECT 'Database Hosts', listagg(host_name,', ') WITHIN GROUP(ORDER BY inst_id) FROM gv$instance
 UNION ALL
-SELECT 'RECOVERY DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_RECOVERY_FILE_DEST';
+SELECT 'Data DiskGroup/Path', display_value FROM v$parameter WHERE upper(NAME)='DB_CREATE_FILE_DEST'
+UNION ALL
+SELECT 'Recovery DiskGroup/Path', display_value FROM v$parameter WHERE upper(NAME)='DB_RECOVERY_FILE_DEST'
+UNION ALL
+SELECT 'Internal Sessions Count', TO_CHAR(count(1)) FROM gv$session WHERE username IS NULL OR service_name LIKE 'SYS%'
+UNION ALL
+SELECT 'Non-Internal Sessions Count', TO_CHAR(count(1)) FROM gv$session WHERE username IS NOT NULL OR service_name NOT LIKE 'SYS%';
 '@
                     if ($DBUser) {
                         Use-OracleDB -TargetDB $DBName -SQLQuery $GeneralInfoQuery -DBUser $DBUser -DBPass $DBPass
