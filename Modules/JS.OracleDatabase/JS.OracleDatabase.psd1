@@ -120,4 +120,3 @@ HelpInfoURI = 'JS.OracleDatabase.psm1'
 # DefaultCommandPrefix = ''
 
 }
-
