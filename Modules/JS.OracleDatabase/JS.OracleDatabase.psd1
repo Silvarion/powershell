@@ -12,7 +12,7 @@
 RootModule = 'JS.OracleDatabase.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.2.3.3'
+ModuleVersion = '0.2.3.5'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
