@@ -1,4 +1,3 @@
-
 <#
 .Synopsis
    Oracle Utilities for using within PowerShell
@@ -85,8 +84,8 @@ function Ping-OracleDB {
             exit
         }
         #Remove previous Jobs
-        Stop-Job * -ErrorAction SilentlyContinue
-        Remove-job * -ErrorAction SilentlyContinue -Force
+        Stop-Job TNSPing* -ErrorAction SilentlyContinue
+        Remove-job TNSPing* -ErrorAction SilentlyContinue -Force
     }
     Process {
         $JobCount = 0
@@ -317,14 +316,36 @@ function Get-OracleObjects {
                 }
             }
             $Query = @"
-SELECT object_type AS "ObjectType"
+COLUMN "Tablespace" FORMAT a30
+COLUMN "OnjectType" FORMAT a30
+COLUMN "ObjectOwner" FORMAT a30
+COLUMN "ObjectName" FORMAT a30
+COLUMN "Status" FORMAT a30
+COLUMN "Created" FORMAT a30
+COLUMN "LastDDL" FORMAT a30
+COLUMN "Edition" FORMAT a30
+SELECT tablespace_name AS "Tablespace"
+    , object_type AS "ObjectType"
     , owner AS "ObjectOwner"
     , object_name AS "ObjectName"
     , status AS "Status"
     , created AS "Created"
     , last_ddl_time AS "LastDDL"
     , edition_name AS "Edition"
-FROM dba_objects_ae
+FROM (
+  SELECT s.tablespace_name
+      , o.object_type
+      , o.owner
+      , o.object_name
+      , o.status
+      , o.created
+      , o.last_ddl_time
+      , o.edition_name
+  FROM dba_objects_ae o
+  LEFT OUTER JOIN dba_segments s ON (
+    o.owner = s.owner 
+    AND o.object_name = s.segment_name
+  ))
 $SQLFilter;
 "@
             if ($DBUser) {
@@ -407,6 +428,12 @@ function Get-OraclePrivileges {
                 }
             }
             $Query = @"
+SET LINESIZE 999
+COLUMN "PrivType" FORMAT a10
+COLUMN "UserName" FORMAT a30
+COLUMN "GrantMethod" FORMAT a45
+COLUMN "PrivType" FORMAT a15
+COLUMN "PrivType" FORMAT a60
 SELECT priv_type AS "PrivType", grantee AS "UserName", method AS "GrantMethod", privilege AS "Privilege", object AS "Object"
 FROM (
     SELECT 'SYSTEM' AS priv_type, NVL(drp.grantee,dsp.grantee) AS grantee, NVL2(drp.granted_role,'ROLE: '||drp.granted_role,'DIRECT GRANT') AS method, dsp.privilege AS privilege, 'N/A' AS object
@@ -418,6 +445,9 @@ FROM (
     FROM dba_tab_privs dtp
     LEFT OUTER JOIN dba_role_privs drp 
         ON (dtp.grantee = drp.granted_role)
+    UNION ALL
+    SELECT 'ROLE' AS priv_type, grantee, 'ROLE' AS method, granted_role as privilege, 'N/A' AS object
+    FROM dba_role_privs
 )
 $SQLFilter
 ORDER BY 1,2,3;
@@ -899,6 +929,7 @@ FROM (
     )
 )
 WHERE db_name NOT IN ('DATAFILE','CONTROLFILE','FLASHBACK','ARCHIVELOG','ONLINELOG','CHANGETRACKING','PARAMETERFILE')
+AND db_name IS NOT NULL
 GROUP BY db_name, disk_group
 ORDER BY DB_NAME;
 "@
@@ -2478,7 +2509,7 @@ define  report_type  = 'html';
 define  report_name  = 'awr_${PDB}_${StartSnapshot}_${EndSnapshot}_global_report.html'
 @@?/rdbms/admin/awrgrpt.sql
 exit;
-"@ -PlainText
+"@ -PlainText -Timeout 3000
             }
             foreach ($i in $InstObjects) {
                 $InstNumber = $i.InstanceNumber
@@ -2495,7 +2526,8 @@ define  report_type  = 'html';
 define  report_name  = 'awr_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.html'
 @@?/rdbms/admin/awrrpti.sql
 exit;
-"@ -PlainText            }
+"@ -PlainText -Timeout 3000
+            }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
         }
@@ -2702,6 +2734,7 @@ function Open-OracleDB {
         [Parameter(
             HelpMessage="Flags the output to be clean without feedback or headers or anything else")]
         [Switch]$Silent,
+        [Switch]$Scratch,
         # Switch to turn on the error logging
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
@@ -2946,6 +2979,14 @@ exit;
                                         $ColCounter++
                                     }
                                     $ResObj | Add-Member -MemberType NoteProperty -Name 'ErrorMsg' -Value " "
+                                    [System.Collections.ArrayList]$defaultDisplaySet = $ResObj | Get-Member | Where-Object { $_.MemberType -eq "NoteProperty" }  | Select-Object -ExpandProperty Name
+                                    $defaultDisplaySet.Remove("RunspaceId")
+                                    $defaultDisplaySet.Remove("PSComputerName")
+                                    $defaultDisplaySet.Remove("PSShowComputerName")
+                                    $defaultDisplayPropertySet = New-Object System.Management.Automation.PSPropertySet('DefaultDisplayPropertySet',[String[]]$defaultDisplaySet)
+                                    $PSStandardMembers = [System.Management.Automation.PSMemberInfo[]]$defaultDisplayPropertySet
+                                    $ResObj.PSObject.TypeNames.Insert(0,'Query.ResultSet')
+                                    $ResObj | Add-Member MemberSet PSStandardMembers $PSStandardMembers -Force
                                     Write-Output $ResObj
                                     $Counter++
                                 }
@@ -3009,6 +3050,8 @@ function Use-OracleDB {
         [Parameter(HelpMessage="Parallel degree, defaults to 8")]
         [int]$Parallelism,
         [Parameter(HelpMessage="Timeout for the job in seconds")]
+        [String]$JobPrefix = "Ora-",
+        [Switch]$Scratch,
         [int]$Timeout = 300,
         # Switch to force get HTML output
         [Parameter(
@@ -3031,8 +3074,10 @@ function Use-OracleDB {
         if (-not $Parallelism) {
             $Parallelism = 4
         }
-        Stop-Job * -ErrorAction SilentlyContinue
-        Remove-Job * -ErrorAction SilentlyContinue -Force
+        if ($Scratch) {
+            Stop-Job * -ErrorAction SilentlyContinue
+            Remove-Job * -ErrorAction SilentlyContinue -Force
+        }
     }
     Process { 
             # Parallelism implementation
