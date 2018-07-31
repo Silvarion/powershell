@@ -2376,10 +2376,10 @@ define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'addm_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.txt'
+define  report_name  = '$env:TEMP/addm_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.txt'
 @@?/rdbms/admin/addmrpti.sql
 exit;
-"@ -PlainText
+"@ -PlainText -Timeout 3600
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -2417,9 +2417,12 @@ function Get-OracleAWRReport {
         # This can be a list of databases
         [Parameter(HelpMessage="Oracle Database ID")]
         [bigint]$DBID,
-        # Instance flag
+        # Global flag
+        [Parameter(HelpMessage="Global report flag")]
+        [Switch]$Global,
+        # Instance name
         [Parameter(HelpMessage="Target Oracle Instance name")]
-        [Switch]$Instance,
+        [String]$Instance,
         # This is the starting time for the performance snapshot
         [Parameter(Mandatory=$true,
             ParameterSetName="Timestamps",
@@ -2444,7 +2447,8 @@ function Get-OracleAWRReport {
         [Switch]$ErrorLog,
         [String]$ErrorLogFile = "$env:TEMP\OracleUtils_Errors_$PID.log"
     )
-    Begin{}
+    Begin{
+    }
     Process{
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
@@ -2466,7 +2470,7 @@ function Get-OracleAWRReport {
             }
             # Pre-checks for required data
             if ($Instance -and $Instances.Count -ge 1) {
-                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | Where-Object { $_.InstanceName -in $Instances }
+                $InstObjects = Get-OracleInstances -TargetDB $TargetDB | Where-Object { $_.InstanceName -iin $Instance }
             } else {
                 $InstObjects = Get-OracleInstances -TargetDB $TargetDB
                 $Global = $true
@@ -2499,22 +2503,23 @@ function Get-OracleAWRReport {
 			Write-Output "Launching AWR Global Report"
             if ($Global) {
             # Using here-string to pipe the SQL query to SQL*Plus
-            Use-oracleDB -TargetDB $ContainerDB -SQLQuery @"
+            Use-OracleDB -TargetDB $PDB -SQLQuery @"
 define  db_name      = '$PDB';
 define  dbid         = $DBID;
 define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'awr_${PDB}_${StartSnapshot}_${EndSnapshot}_global_report.html'
+define  report_name  = '$env:TEMP/awr_${PDB}_${StartSnapshot}_${EndSnapshot}_global_report.html';
 @@?/rdbms/admin/awrgrpt.sql
+
 exit;
-"@ -PlainText -Timeout 3000
+"@ -PlainText -Timeout 3600
             }
             foreach ($i in $InstObjects) {
                 $InstNumber = $i.InstanceNumber
                 $InstName = $i.InstanceName
-                Use-oracleDB -TargetDB $ContainerDB -SQLQuery @"
+                Use-oracleDB -TargetDB $PDB -SQLQuery @"
 define  db_name      = '$PDB';
 define  dbid         = $DBID;
 define  inst_num     = $InstNumber;
@@ -2523,10 +2528,10 @@ define  num_days     = 3;
 define  begin_snap   = $StartSnapshot;
 define  end_snap     = $EndSnapshot;
 define  report_type  = 'html';
-define  report_name  = 'awr_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.html'
+define  report_name  = '$env:TEMP/awr_${PDB}_Inst${InstNumber}_${StartSnapshot}_${EndSnapshot}_report.html';
 @@?/rdbms/admin/awrrpti.sql
 exit;
-"@ -PlainText -Timeout 3000
+"@ -PlainText -Timeout 3600
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -2612,43 +2617,25 @@ function Get-OraclePerfReports {
                 [bigint]$DBID = $TempStr.Trim(' ')
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "DBID for $TargetDB : $DBID"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Snapshot numbers"
-                [String]$StrSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $StartTime.AddSeconds(59).ToString("yyyy-MM-dd HH:mm:ss") -Mark start
-                [bigint]$StartSnapshot = [bigint]$StrSnapshot.trim(' ')
-                [String]$StrSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $EndTime.ToString("yyyy-MM-dd HH:mm:ss") -Mark end
-                [bigint]$EndSnapshot = [bigint]$StrSnapshot.trim(' ')
+                $StartSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $StartTime.ToString("yyyy-MM-dd HH:mm:ss") -Mark start
+                $EndSnapshot = Get-OracleSnapshot -TargetDB $TargetDB -TimeStamp $EndTime.ToString("yyyy-MM-dd HH:mm:ss") -Mark end
 				Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot: $StartSnapshot | Ending Snapshot: $EndSnapshot"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Snapshot times"
-                [String]$StartSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $StartSnapshot -Mark start
-                [String]$EndSnapTime = Get-OracleSnapshotTime -TargetDB $TargetDB -DBID $DBID -Snapshot $EndSnapshot -Mark end
-                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot Time: $StartSnapTime | Ending Snapshot Time: $EndSnapTime"
-                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Getting Oracle database instances"
-                $Instances = Get-OracleInstances -TargetDB $TargetDB | Select-Object -ExpandProperty InstanceName
-                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Instances found: $Instances"
+                Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Starting Snapshot Time: $($StartSnapshot.SnapshotTime) | Ending Snapshot Time: $($EndSnapshot.SnapshotTime)"
                 if ($AWR) {
                     Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Generating AWR Report Set"
-                    $ORAOutput = Get-OracleAWRReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
-                    foreach ($Instance in $Instances) {
-                        if ($Instance.Length -gt 0) {
-                            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Launching AWR Instance Report for $Instance"
-                            $ORAOutput = Get-OracleAWRInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
-                        }
-                    }
+                    $ORAOutput = Get-OracleAWRReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $($StartSnapshot.SnapshotId) -EndSnapshot $($EndSnapshot.SnapshotId)
                     if ($Compress) {
                         Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing AWR reports set"
-                        zip -9m AWR_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip awr*.htm*
+                        zip -9mj AWR_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/awr*.htm* | Out-Null
                     }
                 }
                 if ($ADDM) {
                     Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Generating ADDM Report Set"
-                    foreach ($Instance in $Instances) {
-                        if ($Instance.Length -gt 0) {
-                            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Launching ADDM Instance #$InstNumber Report for $Instance"
-                            $ORAOutput = Get-OracleADDMInstanceReport -TargetDB $TargetDB -Instance $Instance -DBID $DBID -StartSnapshot $StartSnapshot -EndSnapshot $EndSnapshot
-                        }
-                    }
+                    $ORAOutput = Get-OracleADDMReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $($StartSnapshot.SnapshotId) -EndSnapshot $($EndSnapshot.SnapshotId)
                     if ($Compress) {
                         Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing ADDM reports set"
-                        zip -9m ADDM_${TargetDB}_${StartSnapshot}_${EndSnapshot}_reports.zip addm*.*
+                        zip -9mj ADDM_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/addm*.* | Out-Null
                     }
                 }
                 if ($SendMail) {
@@ -2661,9 +2648,19 @@ function Get-OraclePerfReports {
                     } else {
                         $ReportFiles = Get-ChildItem -Path . -Name *report.*
                     }
-                    $searcher = [adsisearcher]"(samaccountname=$env:USERNAME)"
-                    $FromAddress = $searcher.FindOne().Properties.mail
-                    Send-MailMessage -Attachments $ReportFiles -From $FromAddress -To $FromAddress -Subject "Reports Test" -Body "Some message" -SmtpServer "<YOUR SMTP SERVER>" -Credential (Get-Credential) -UseSsl
+
+                    $Outlook = New-Object -ComObject Outlook.Application
+                    $Email = $Outlook.CreateItem(0)
+                    $Email.To = "jesus.sanchez.dba@wellsfargo.com"
+                    $Email.Subject = "SIT Performance Reports Packs and Grid Pull"
+                    $Email.HTMLBody = "$(Get-Content -Path $GridPullFile)"
+                    #$Snapshot = Get-OracleSnapshot -TargetDB cbpdei -TimeStamp $StartTime -Mark start
+                    $Attmnts = Get-ChildItem -Path ".\" -Include *$Snapshot*.zip -File
+                    foreach ($Item in $()) {
+                        Write-Output "Attaching $Item.FullName"
+                    #    $Email.Attachments.Add($Item)
+                    }
+                    $Email.Send()
                 }
             }
         }
