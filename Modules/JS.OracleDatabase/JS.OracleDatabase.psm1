@@ -185,14 +185,7 @@ function Get-OracleDBInfo {
         [String]$DBUser,
         # Flag to ask for a password
         [Alias("p")]
-<<<<<<< HEAD
-        [Switch]$PasswordPrompt,
-        # Parallelism
-        [int]$Parallelism = 1
-    )
-=======
         [Switch]$PasswordPrompt    )
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
     Process {
         if (Test-OracleEnv) {
             if ($PasswordPrompt) {
@@ -229,7 +222,7 @@ SET LINESIZE 9999
 SET PAGESIZE 9999
 SET FEEDBACK OFF
 COLUMN "DatabaseItem" FORMAT a50
-COLUMN "Value" FORMAT a200
+COLUMN "Value" FORMAT a900
 SELECT 'DBID' AS "DatabaseItem", TO_CHAR(dbid) AS "Value" FROM v$database
 UNION ALL
 SELECT 'UNIQUE/CONTAINER NAME', db_unique_name FROM v$database
@@ -352,23 +345,14 @@ FROM (
   LEFT OUTER JOIN dba_segments s ON (
     o.owner = s.owner 
     AND o.object_name = s.segment_name
+    AND o.object_type = s.segment_type
   ))
 $SQLFilter;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -Timeout 300
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Timeout 300 -Parallelism $Parallelism
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
 
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
@@ -383,7 +367,7 @@ $SQLFilter;
 .EXAMPLE
     Get-OraclePrivileges -TargetDB myorcl -SQLFilter "grantee ='DB_USER_OR_ROLE'"
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of privileges in a DB
 .ROLE
    Oracle DBA
 #>
@@ -469,20 +453,10 @@ FROM (
 $SQLFilter
 ORDER BY 1,2,3;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Privileges" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -566,20 +540,10 @@ SELECT db_link AS `"LinkName`"
 FROM dba_db_links
 $SQLFilter;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName DB Links" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -587,13 +551,13 @@ $SQLFilter;
 
 <#
 .Synopsis
-   Returns the Active Services in an Oracle DB
+   Returns the Services in an Oracle DB
 .DESCRIPTION
    This function returns the Active Services in an Oracle DB
 .EXAMPLE
     Get-OracleServices -TargetDB myorcl
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of services in a DB
 #>
 function Get-OracleServices {
     [CmdletBinding()]
@@ -649,16 +613,8 @@ ORDER BY 1;
                     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                     $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
                 }
-<<<<<<< HEAD
-                Write-Progress -Activity "Gathering $DBName Services" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-=======
                 if ($DBUser -eq "SYS") {
                     $LoginString += " AS SYSDBA"
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
                 }
 
             } else {
@@ -744,7 +700,6 @@ function Get-OracleSessions {
             $Query = @"
 SELECT q'{'}'||sid||','||serial#||',@'||inst_id||q'{'}' AS "Session"
     , service_name AS "ServiceName"
-    , logon_time AS "LogonTime"
     , username AS "UserName"
     , logon_time AS "LogonTime"
     , status AS "Status"
@@ -758,15 +713,9 @@ FROM gv`$session
 $SQLFilter;
 "@
                 if ($DBUser) {
-<<<<<<< HEAD
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-=======
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
                 }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -776,11 +725,12 @@ $SQLFilter;
 .Synopsis
    Returns the Size an Oracle DB, Tablespace or Tables, based on the paramaters passed
 .DESCRIPTION
-   This function returns the Active Services in an Oracle DB
+   This function returns the size of an Oracle DB or some of its components
 .EXAMPLE
     Get-OracleSize -TargetDB myorcl -SizeType Full -Unit GB
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve a full list of active services in a DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the size of a DB. It can report
+   full cluster, full db, tablespace and tables
 .ROLE
     Oracle DBA
 #>
@@ -1033,7 +983,7 @@ ORDER BY DB_NAME;
 .EXAMPLE
     Get-OracleOptions -TargetDB myorcl
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve the status of Database Vault in an Oracle DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the status of Database Options in an Oracle DB
 #>
 function Get-OracleOptions {
     [CmdletBinding()]
@@ -1074,21 +1024,6 @@ SELECT comp_name AS "ComponentName"
 FROM dba_registry
 ORDER BY 1;
 '@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
-                if ($DBUser) {
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Options and Statuses" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             Write-Progress -Activity "Gathering $DBName Sizes" -CurrentOperation "Pinging $DBName databases" -PercentComplete 0
             if ($DBUser) {
                 $LoginString = "${DBUser}/${DBPass}@${DBName}"
@@ -1099,7 +1034,6 @@ ORDER BY 1;
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         } else { Write-Error "Oracle Environment not set!!!" -Category NotSpecified -RecommendedAction "Set your `$env:ORACLE_HOME variable with the path to your Oracle Client or Software Home" }
     }
@@ -1285,18 +1219,7 @@ exit
                 if ($DBUser) {
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
                 } else {
-<<<<<<< HEAD
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Instances" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
                     Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
 
             }
         } else {
@@ -1363,25 +1286,10 @@ SELECT host_name AS "HostName"
 FROM gv$instance
 ORDER BY 1;
 '@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    $LoginString = "${DBUser}/${DBPass}@${DBName}"
-                } else {
-                    $LoginString = "/@$DBName"
-                }
-                Write-Progress -Activity "Gathering $DBName Hosts" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1392,13 +1300,13 @@ ORDER BY 1;
 
 <#
 .Synopsis
-    Query an Oracle database to get the names of all its hosts
+    Query an Oracle database to get the db accounts, status and some other info.
 .DESCRIPTION
-    This function returns host names for a target oracle database
+    This function returns db accounts, status and other info for a target oracle database
 .EXAMPLE
     Get-OracleHosts -TargetDB <DB NAME> [-ErrorLog]
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve the host names for an Oracle DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve the db accounts for an Oracle DB
 .ROLE
    Oracle DBA
 #>
@@ -1471,20 +1379,10 @@ SELECT username AS "UserName"
 FROM dba_users
 $SQLFilter;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Users" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
             Write-Progress -Activity "Gathering Users on $DBName..." -CurrentOperation "Writing Object" -PercentComplete 99 -Id 100
         } else {
@@ -1548,20 +1446,10 @@ function Get-OracleDBID {
             $Query =  @'
 SELECT dbid FROM v$database;
 '@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName DBID" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         } else {
             Write-Error "No Oracle Home detected, please install at least the Oracle Client and try again"
@@ -1572,13 +1460,13 @@ SELECT dbid FROM v$database;
 
 <#
 .Synopsis
-    Query an Oracle database to get the an AWR Snapshot ID based on a timestamp
+    Query an Oracle database to get an AWR Snapshot Information based on a timestamp
 .DESCRIPTION
-    This function returns an AWR Snapshot ID
+    This function returns an AWR Snapshot information, including ID and Timestamp
 .EXAMPLE
     Get-OracleSanpshot -TargetDB myorcl -Timestamp "2018-01-21 17:00:00 +0" -Mark start
 .FUNCTIONALITY
-   This cmdlet is mean to be used by Oracle DBAs to retrieve the host names for an Oracle DB
+   This cmdlet is mean to be used by Oracle DBAs to retrieve an AWR Snapshot based on a timestamp for an Oracle DB
 .ROLE
    Oracle DBA
 #>
@@ -1826,20 +1714,10 @@ AND SOFAR/TOTALWORK < 1
 AND l.SID = s.SID
 AND l.serial# = s.serial#;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         }
     }
@@ -1924,20 +1802,10 @@ and status='ACTIVE'
 $UserFilter
 and (sysdate-sql_exec_start)*24*60*60 > $SecondsLimit;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                Write-Progress -Activity "Gathering $DBName Long Running SQLs" -CurrentOperation "Querying $DBName..." -PercentComplete 25
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUser $DBUser -DBPass $DBPass -Parallelism $Parallelism
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -Parallelism $Parallelism
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         }
     }
@@ -2095,19 +1963,10 @@ FROM (
 	)
 WHERE ROWNUM = 1;
 "@
-<<<<<<< HEAD
-            foreach ($DBName in $TargetDB) {
-                if ($DBUser) {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$') -DBUSer "$DBUser" -DBPass "$DBPass"
-                } else {
-                    Use-OracleDB -TargetDB $DBName -SQLQuery $Query.Replace('$','`$')
-                }
-=======
             if ($DBUser) {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$') -DBUSer "$DBUser" -DBPass "$DBPass"
             } else {
                 Use-OracleDB -TargetDB $TargetDB -SQLQuery $Query.Replace('$','`$')
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
             }
         }
     }
@@ -2752,7 +2611,7 @@ function Get-OraclePerfReports {
                 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePass)
                 $DBPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
             }
-            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Pinging $TargetDB} Datbase"
+            Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Pinging $TargetDB Datbase"
             if (Ping-OracleDB -TargetDB $TargetDB) {
 				Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Database pinged successfully"
                 Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Gathering DBID"
@@ -2770,7 +2629,8 @@ function Get-OraclePerfReports {
                     $ORAOutput = Get-OracleAWRReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $($StartSnapshot.SnapshotId) -EndSnapshot $($EndSnapshot.SnapshotId)
                     if ($Compress) {
                         Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing AWR reports set"
-                        zip -9mj AWR_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/awr*.htm* | Out-Null
+                        zip -9mj $env:TEMP/AWR_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/awr*.htm* | Out-Null
+                        Write-Information "Created ZIP File: $env:TEMP/AWR_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip"
                     }
                 }
                 if ($ADDM) {
@@ -2778,7 +2638,8 @@ function Get-OraclePerfReports {
                     $ORAOutput = Get-OracleADDMReport -TargetDB $TargetDB -DBID $DBID -StartSnapshot $($StartSnapshot.SnapshotId) -EndSnapshot $($EndSnapshot.SnapshotId)
                     if ($Compress) {
                         Write-Progress -Activity "Generating Performance Reports" -CurrentOperation "Compressing ADDM reports set"
-                        zip -9mj ADDM_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/addm*.* | Out-Null
+                        zip -9mj $env:TEMP/ADDM_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip $env:TEMP/addm*.* | Out-Null
+                        Write-Information "Created ZIP File: $env:TEMP/ADDM_${TargetDB}_$($StartSnapshot.SnapshotId)_$($EndSnapshot.SnapshotId)_reports.zip"
                     }
                 }
                 if ($SendMail) {
@@ -3212,11 +3073,7 @@ function Use-OracleDB {
             $JobTimeOut = [timespan]::FromSeconds(300) # Defaults the timeout to 5 minutes
         }
         if (-not $Parallelism) {
-<<<<<<< HEAD
-            $Parallelism = 1
-=======
             $Parallelism = 4
->>>>>>> a747a0dab7fab0c00e8b18cd16ee487cd3e677eb
         }
         if ($Scratch) {
             Stop-Job * -ErrorAction SilentlyContinue
@@ -3466,21 +3323,15 @@ function Test-OracleHealth {
                 if (Ping-OracleDB -TargetDB $DBName) {
                     Write-Progress -Activity "Checking $DBName Health Status" -CurrentOperation "Querying $DBName..." -PercentComplete 25
                     $GeneralInfoQuery = @'
-SELECT 'Unique/Container Name' AS "AttributeName", db_unique_name AS "Value" FROM v$database
+SELECT 'DATABASE NAME' AS "AttributeName", db_unique_name AS "Value" FROM v$database
 UNION ALL
-SELECT 'Global/Pluggable Name', global_name FROm global_name
+SELECT 'NUMBER OF INSTANCES', TO_CHAR(MAX(inst_id)) FROM gv$instance
 UNION ALL
-SELECT 'Number of Instances', TO_CHAR(MAX(inst_id)) FROM gv$instance
+SELECT 'DATABASE HOSTS', listagg(host_name,', ') WITHIN GROUP(ORDER BY inst_id) FROM gv$instance
 UNION ALL
-SELECT 'Database Hosts', listagg(host_name,', ') WITHIN GROUP(ORDER BY inst_id) FROM gv$instance
+SELECT 'DATA DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_CREATE_FILE_DEST'
 UNION ALL
-SELECT 'Data DiskGroup/Path', display_value FROM v$parameter WHERE upper(NAME)='DB_CREATE_FILE_DEST'
-UNION ALL
-SELECT 'Recovery DiskGroup/Path', display_value FROM v$parameter WHERE upper(NAME)='DB_RECOVERY_FILE_DEST'
-UNION ALL
-SELECT 'Internal Sessions Count', TO_CHAR(count(1)) FROM gv$session WHERE username IS NULL OR service_name LIKE 'SYS%'
-UNION ALL
-SELECT 'Non-Internal Sessions Count', TO_CHAR(count(1)) FROM gv$session WHERE username IS NOT NULL OR service_name NOT LIKE 'SYS%';
+SELECT 'RECOVERY DISKGROUP/PATH', value FROM v$spparameter WHERE upper(NAME)='DB_RECOVERY_FILE_DEST';
 '@
                     if ($DBUser) {
                         Use-OracleDB -TargetDB $DBName -SQLQuery $GeneralInfoQuery -DBUser $DBUser -DBPass $DBPass
