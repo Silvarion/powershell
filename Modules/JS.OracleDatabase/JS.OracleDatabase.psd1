@@ -84,10 +84,10 @@ AliasesToExport = '*'
 # DscResourcesToExport = @()
 
 # List of all modules packaged with this module
-ModuleList = @('JS.oracleDatabase')
+ModuleList = @('JS.OracleDatabase')
 
 # List of all files packaged with this module
-FileList = @('JS.oracleDatabase.psm1')
+FileList = @('JS.OracleDatabase.psm1')
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
