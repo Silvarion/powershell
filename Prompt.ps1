@@ -4,7 +4,7 @@ function prompt {
     # Set the ESC Character
     $ESC = [Char]27
     # Resolve if in Git Repo
-    if (Get-Command "git.exe" -ErrorAction SilentlyContinue) {
+    if (Get-Command "git" -ErrorAction SilentlyContinue) {
         $GitStatus = git status
         # Build Git Section
         if ($GitStatus) {
